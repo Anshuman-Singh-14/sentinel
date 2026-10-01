@@ -3,7 +3,7 @@
 #   dev   Vite dev server, used by docker compose (node:24-alpine, runs as `node`)
 #   prod  static build served by unprivileged nginx (production profile)
 
-FROM node:24-alpine AS deps
+FROM node:26-alpine AS deps
 WORKDIR /app
 RUN chown node:node /app
 USER node
