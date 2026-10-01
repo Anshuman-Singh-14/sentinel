@@ -1,0 +1,78 @@
+# Install once:  pip install pre-commit==4.6.2 && pre-commit install
+# Run all:       pre-commit run --all-files
+#
+# Hooks are fast and local. CI (.github/workflows/ci.yml) re-runs the full gates
+# inside the project's own containers, which remains the source of truth.
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-yaml
+      - id: check-toml
+      - id: check-json
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: ["--maxkb=1024"]
+      - id: detect-private-key
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+        args: ["--markdown-linebreak-ext=md"]
+      - id: mixed-line-ending
+        args: ["--fix=lf"]
+
+  # Secret scanning (04-security.md section 6).
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.9
+    hooks:
+      - id: ruff-check
+        args: ["--fix"]
+        files: ^backend/
+      - id: ruff-format
+        files: ^backend/
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v2.3.1
+    hooks:
+      - id: mypy
+        files: ^backend/
+        args: ["--config-file=backend/pyproject.toml"]
+        # The hook runs in an isolated env, so it needs the typed runtime deps.
+        # Keep these in step with backend/pyproject.toml.
+        additional_dependencies:
+          - pydantic==2.13.5
+          - pydantic-settings==2.15.0
+          - fastapi==0.142.2
+          - redis==8.1.0
+          - pytest==9.1.1
+          - httpx==0.28.1
+
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.9.4
+    hooks:
+      - id: bandit
+        args: ["-c", "backend/pyproject.toml", "-ll"]
+        files: ^backend/app/
+        additional_dependencies: ["bandit[toml]"]
+
+  # Frontend hooks use the project's own pinned toolchain (frontend/node_modules).
+  # Run `npm ci` in frontend/ first.
+  - repo: local
+    hooks:
+      - id: prettier
+        name: prettier
+        entry: npm --prefix frontend exec -- prettier --check --ignore-unknown
+        language: system
+        files: ^frontend/
+        pass_filenames: false
+        args: ["frontend"]
+      - id: eslint
+        name: eslint
+        entry: npm --prefix frontend run -s lint
+        language: system
+        files: ^frontend/.*\.(ts|tsx|js)$
+        pass_filenames: false

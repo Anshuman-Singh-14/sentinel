@@ -1,0 +1,114 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Least privilege for the workflow token.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend (ruff, mypy, bandit, pip-audit, pytest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      # Gates run inside the same image docker compose uses, so CI and local
+      # results cannot drift apart.
+      - name: Build dev image
+        run: docker build --target dev -t sentinel-backend:ci backend
+      - name: ruff
+        run: docker run --rm sentinel-backend:ci sh -c "ruff check . && ruff format --check ."
+      - name: mypy
+        run: docker run --rm sentinel-backend:ci mypy app tests
+      - name: bandit
+        run: docker run --rm sentinel-backend:ci bandit -r app -ll -c pyproject.toml
+      - name: pip-audit
+        run: docker run --rm sentinel-backend:ci pip-audit --strict --progress-spinner off
+      - name: pytest
+        run: docker run --rm sentinel-backend:ci pytest
+      - name: Build runtime image
+        run: docker build --target runtime -t sentinel-backend:runtime backend
+
+  frontend:
+    name: Frontend (eslint, prettier, tsc, vitest, npm audit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --no-fund
+      - run: npm run lint
+      - run: npm run format:check
+      - run: npm run typecheck
+      - run: npm run test
+      - run: npm audit --audit-level=high
+      - name: Build prod image
+        run: docker build --target prod -t sentinel-frontend:prod .
+
+  secrets:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: gitleaks
+        run: |
+          docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.30.1 \
+            git /repo --redact --verbose
+
+  compose-smoke:
+    name: Compose smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [backend, frontend]
+    steps:
+      - uses: actions/checkout@v7
+      - name: Create throwaway .env
+        run: |
+          gen() { python3 -c "import secrets; print(secrets.token_hex(24))"; }
+          sed -e "s/^POSTGRES_PASSWORD=CHANGE_ME/POSTGRES_PASSWORD=$(gen)/" \
+              -e "s/^SENTINEL_DB_OWNER_PASSWORD=CHANGE_ME/SENTINEL_DB_OWNER_PASSWORD=$(gen)/" \
+              -e "s/^SENTINEL_DB_APP_PASSWORD=CHANGE_ME/SENTINEL_DB_APP_PASSWORD=$(gen)/" \
+              -e "s/^REDIS_PASSWORD=CHANGE_ME/REDIS_PASSWORD=$(gen)/" \
+              -e "s/^VITE_USE_POLLING=.*/VITE_USE_POLLING=false/" \
+              -e "s/^WATCHFILES_FORCE_POLLING=.*/WATCHFILES_FORCE_POLLING=false/" \
+              .env.example > .env
+      - name: Start stack
+        run: docker compose up --build -d --wait --wait-timeout 300
+      - name: Probe endpoints
+        run: |
+          curl -fsS http://127.0.0.1:8000/health
+          curl -fsS http://127.0.0.1:8000/ready
+          curl -fsS http://127.0.0.1:5173/health
+          docker compose exec -T worker python -c \
+            "from app.core.tasks.celery_app import ping; assert ping.delay().get(timeout=15) == 'pong'"
+      - name: Postgres and Redis must not be reachable from the host
+        run: |
+          for port in 5432 6379; do
+            if timeout 3 bash -c "</dev/tcp/127.0.0.1/$port" 2>/dev/null; then
+              echo "port $port is reachable from the host" && exit 1
+            fi
+          done
+      - name: Logs on failure
+        if: failure()
+        run: docker compose logs --no-color
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
