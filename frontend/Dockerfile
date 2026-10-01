@@ -21,7 +21,7 @@ RUN npm run build
 
 # nginx-unprivileged is the official NGINX image variant that runs as a non-root
 # user and listens on 8080, so no capabilities are needed (04-security.md section 10).
-FROM nginxinc/nginx-unprivileged:1.29-alpine AS prod
+FROM nginxinc/nginx-unprivileged:1.31-alpine AS prod
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/dist /usr/share/nginx/html
 EXPOSE 8080
