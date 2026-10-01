@@ -1,0 +1,20 @@
+# Knowledge entries for the `echo` tool. Echo exists only to prove the tool
+# contract end to end, so its text explains the result format itself.
+schema_version: 1
+namespace: echo
+version: "1.0.0"
+entries:
+  echo.message_received:
+    title: Echo round trip succeeded
+    explanation: >-
+      Sentinel received your message ($length characters, repeated $repeat time(s))
+      and returned it through the standard result pipeline. Every real tool produces
+      findings in this same shape: what was found, how severe it is and why, and
+      what to do about it.
+    remediation: >-
+      No action needed. This is a diagnostic tool that confirms the platform works.
+    severity: INFO
+    severity_rationale: >-
+      Informational: the echo tool makes no security assessment, so there is no
+      risk to rate.
+    references: []
