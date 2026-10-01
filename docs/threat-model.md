@@ -1,11 +1,11 @@
 # Sentinel — Threat model
 
-STRIDE-style and updated every phase. **Last updated:** Phase 0 (2026-10-01).
+STRIDE-style and updated every phase. **Last updated:** Phase 1 (2026-10-01).
 
 ## 1. System overview
 
 ```
- Browser ──► frontend (Vite dev / nginx) ──► api (FastAPI) ──► postgres
+ Browser ──► frontend (Vite dev / nginx) ──► api (FastAPI) ──► postgres ◄── migrate (one-shot, schema owner)
                                                │  ▲
                                                ▼  │ pub/sub
                                              redis ◄── worker (Celery) ──► [targets, Phase 5+]
@@ -50,9 +50,15 @@ Networks: `edge` (frontend, api) and `internal` (api, worker, postgres, redis;
 | T12 | S | Cross-Site WebSocket Hijacking | Origin check on connect plus a single-use short-lived WS ticket | Planned (P5) |
 | T13 | R | Users deny running scans | Hash-chained, append-only audit log with attribution | Planned (P2) |
 | T14 | D | Resource exhaustion (huge scans, uploads, slow targets) | Timeouts and caps everywhere. Celery soft/hard limits and prefetch 1. Per-user quotas | Partial (P0 Celery limits) |
-| T15 | I | Secrets in logs | Mandatory redaction processor | Planned (P1) |
+| T15 | I | Secrets in logs | Mandatory redaction processor on every record, including stdlib loggers, tracebacks and the uvicorn supervisor (ADR 0002) | Done (P1) |
 | T16 | T | Path traversal in log analyzer or FIM | PathGuard and read-only mounts | Planned (P10/P11) |
 | T17 | T | Supply-chain compromise | Exact pins and lockfiles, pip-audit, npm audit, Dependabot | Done (P0) |
+| T18 | T/R | Log injection or forging via `X-Request-ID` (newlines, ANSI, huge values) | Strict request-ID format, otherwise replaced with a UUIDv7. Re-validated in the worker | Done (P1) |
+| T19 | I | Library logs leaking data: raw paths and query strings (uvicorn access), SQL parameters (sqlalchemy), outbound URLs with keys (httpx) | Those loggers capped at WARNING. Our access log records route templates only | Done (P1) |
+| T20 | I | Validation errors echoing submitted secrets back in the response | 422 bodies carry only `loc`, `msg`, `type`, never `input` | Done (P1) |
+| T21 | I | Stack traces or driver errors reaching clients | Exception hierarchy and handlers. Last-resort 500 built in the outermost middleware with request ID and security headers | Done (P1) |
+| T22 | E | App role altering schema or the audit table | Migrations run only in the one-shot `migrate` container as `sentinel_owner`. `sentinel_app` has DML only, verified in CI | Done (P1) |
+| T23 | E | Malicious YAML in the knowledge base (object construction) | `yaml.safe_load` only (AST test bans `yaml.load`), Pydantic-validated, 1 MB cap, `string.Template` rendering (no attribute access) | Done (P1) |
 
 ## 5. Accepted risks and environment notes
 
