@@ -51,7 +51,7 @@ services:
       retries: 20
 
   redis:
-    image: redis:7.4-alpine
+    image: redis:8.10-alpine
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:?set in .env}
     # Persistence is off: Redis holds only the broker queue, transient results
