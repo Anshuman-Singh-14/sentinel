@@ -54,6 +54,9 @@ containers. See `docs/adr/0001-architecture-and-stack.md`.
   YAML knowledge base. Echo tool and `GET /api/v1/tools`.
 - CI: migration round trip + `alembic check`, app-role DDL denial, JSON-log check for api and worker.
 - Docs: ADR 0002, threat model T15 and T18–T23.
+- Local acceptance re-run (2026-10-01): 205 tests pass; ruff, mypy, bandit clean; migration
+  upgrade → downgrade → upgrade + `alembic check` clean; JSON logs carry `request_id` on every line;
+  `GET /api/v1/tools` lists `echo`. Remaining: green CI on the PR, then merge to `main`.
 
 ## Phase 0 log
 
