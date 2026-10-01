@@ -1,0 +1,158 @@
+# Sentinel development stack.  Usage:  docker compose up --build
+#
+# Security posture (04-security.md section 10):
+# * postgres and redis are only on the `internal` network (no internet egress)
+#   and never publish host ports.
+# * Published ports bind to 127.0.0.1, so the stack is not reachable from the LAN.
+# * App containers run as non-root, with all capabilities dropped and
+#   no-new-privileges set.
+# * Each service gets only the secrets it needs. The Postgres superuser
+#   password never reaches the app containers.
+
+name: sentinel
+
+x-app-hardening: &app-hardening
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  restart: unless-stopped
+
+x-backend-env: &backend-env
+  ENVIRONMENT: ${ENVIRONMENT:-development}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
+  DATABASE_URL: postgresql://sentinel_app:${SENTINEL_DB_APP_PASSWORD:?set in .env}@postgres:5432/${POSTGRES_DB:-sentinel}
+  REDIS_URL: redis://:${REDIS_PASSWORD:?set in .env}@redis:6379/0
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-sentinel}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
+      SENTINEL_DB_OWNER_PASSWORD: ${SENTINEL_DB_OWNER_PASSWORD:?set in .env}
+      SENTINEL_DB_APP_PASSWORD: ${SENTINEL_DB_APP_PASSWORD:?set in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
+    networks: [internal]
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    healthcheck:
+      # Probe TCP, not the unix socket: during first-run init Postgres runs a
+      # socket-only temporary server, and a socket probe would report "ready"
+      # before the role-creation script has finished.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7.4-alpine
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?set in .env}
+    # Persistence is off: Redis holds only the broker queue, transient results
+    # and rate-limit counters. The durable state lives in Postgres.
+    command: ["sh", "-c", "exec redis-server --requirepass \"$$REDIS_PASSWORD\" --appendonly no --save ''"]
+    networks: [internal]
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    healthcheck:
+      # REDISCLI_AUTH keeps the password out of the process argument list.
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$REDIS_PASSWORD\" redis-cli ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    <<: *app-hardening
+    build:
+      context: ./backend
+      target: dev
+    image: sentinel-backend:dev
+    command: ["uvicorn", "app.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    environment:
+      <<: *backend-env
+      WATCHFILES_FORCE_POLLING: ${WATCHFILES_FORCE_POLLING:-false}
+    volumes:
+      - ./backend:/app
+    ports:
+      - "127.0.0.1:${API_PORT:-8000}:8000"
+    networks: [internal, edge]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).status == 200 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  worker:
+    <<: *app-hardening
+    build:
+      context: ./backend
+      target: dev
+    image: sentinel-backend:dev
+    command: ["celery", "-A", "app.core.tasks.celery_app:celery_app", "worker", "--loglevel=INFO", "--queues=default,scans,intel", "--concurrency=2"]
+    environment:
+      <<: *backend-env
+    volumes:
+      - ./backend:/app
+    # Phase 0: no internet egress. Phases 5+ attach the networks that active
+    # tools need (see docs/threat-model.md, the infra denylist and lab network).
+    networks: [internal]
+    depends_on:
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.core.tasks.celery_app:celery_app inspect ping -d \"celery@$$HOSTNAME\" --timeout 5 > /dev/null"]
+      interval: 30s
+      timeout: 15s
+      retries: 5
+      start_period: 20s
+
+  frontend:
+    <<: *app-hardening
+    build:
+      context: ./frontend
+      target: dev
+    image: sentinel-frontend:dev
+    environment:
+      VITE_API_PROXY_TARGET: http://api:8000
+      VITE_USE_POLLING: ${VITE_USE_POLLING:-false}
+    volumes:
+      - ./frontend:/app
+      # Keep node_modules in a named volume. It never lands on the host, which
+      # matters for OneDrive-synced checkouts and for native binaries built for Alpine.
+      - frontend_node_modules:/app/node_modules
+    ports:
+      - "127.0.0.1:${FRONTEND_PORT:-5173}:5173"
+    networks: [edge]
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:5173/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+networks:
+  internal:
+    internal: true
+  edge: {}
+
+volumes:
+  pgdata:
+  frontend_node_modules:
