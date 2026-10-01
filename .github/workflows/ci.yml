@@ -27,7 +27,7 @@ jobs:
       - name: ruff
         run: docker run --rm sentinel-backend:ci sh -c "ruff check . && ruff format --check ."
       - name: mypy
-        run: docker run --rm sentinel-backend:ci mypy app tests
+        run: docker run --rm sentinel-backend:ci mypy app tests alembic
       - name: bandit
         run: docker run --rm sentinel-backend:ci bandit -r app -ll -c pyproject.toml
       - name: pip-audit
@@ -89,6 +89,7 @@ jobs:
               -e "s/^REDIS_PASSWORD=CHANGE_ME/REDIS_PASSWORD=$(gen)/" \
               -e "s/^VITE_USE_POLLING=.*/VITE_USE_POLLING=false/" \
               -e "s/^WATCHFILES_FORCE_POLLING=.*/WATCHFILES_FORCE_POLLING=false/" \
+              -e "s/^LOG_FORMAT=.*/LOG_FORMAT=json/" \
               .env.example > .env
       - name: Start stack
         run: docker compose up --build -d --wait --wait-timeout 300
@@ -99,6 +100,34 @@ jobs:
           curl -fsS http://127.0.0.1:5173/health
           docker compose exec -T worker python -c \
             "from app.core.tasks.celery_app import ping; assert ping.delay().get(timeout=15) == 'pong'"
+      - name: Migrations round-trip with no schema drift
+        run: |
+          docker compose run --rm -T migrate \
+            sh -c "alembic downgrade base && alembic upgrade head && alembic check"
+      - name: App role cannot change the schema
+        run: |
+          docker compose exec -T api python -c "
+          import asyncio
+          from sqlalchemy import text
+          from app.db.session import get_engine
+          async def main():
+              async with get_engine().connect() as conn:
+                  try:
+                      await conn.execute(text('CREATE TABLE ci_should_fail (id int)'))
+                  except Exception:
+                      return
+                  raise SystemExit('sentinel_app was able to run DDL')
+          asyncio.run(main())"
+      - name: API and worker logs are JSON with request_id on every line
+        run: |
+          curl -fsS -H "X-Request-ID: ci-check-001" http://127.0.0.1:8000/api/v1/tools > /dev/null
+          docker compose logs --no-log-prefix api worker | python3 -c "
+          import json, sys
+          lines = [json.loads(l) for l in sys.stdin if l.strip()]
+          assert lines, 'no log lines'
+          assert all('request_id' in l for l in lines), 'line without request_id'
+          assert any(l.get('request_id') == 'ci-check-001' for l in lines), 'request id missing'
+          print(len(lines), 'JSON lines OK')"
       - name: Postgres and Redis must not be reachable from the host
         run: |
           for port in 5432 6379; do

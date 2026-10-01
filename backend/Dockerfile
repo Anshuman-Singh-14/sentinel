@@ -41,11 +41,13 @@ ENV RUFF_CACHE_DIR=/tmp/ruff-cache \
     XDG_CACHE_HOME=/tmp/.cache
 USER 10001:10001
 EXPOSE 8000
-CMD ["uvicorn", "app.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "app.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--no-access-log", "--no-proxy-headers", "--log-config", "uvicorn-logging.json"]
 
 FROM base AS runtime
 COPY --from=deps-prod /opt/venv /opt/venv
 COPY --chown=root:root app ./app
+COPY --chown=root:root alembic ./alembic
+COPY --chown=root:root alembic.ini uvicorn-logging.json ./
 USER 10001:10001
 EXPOSE 8000
-CMD ["uvicorn", "app.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "127.0.0.1"]
+CMD ["uvicorn", "app.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--no-access-log", "--no-proxy-headers", "--log-config", "uvicorn-logging.json"]

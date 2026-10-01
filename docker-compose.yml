@@ -18,9 +18,15 @@ x-app-hardening: &app-hardening
     - ALL
   restart: unless-stopped
 
-x-backend-env: &backend-env
+x-logging-env: &logging-env
   ENVIRONMENT: ${ENVIRONMENT:-development}
   LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  # Empty = auto: pretty console in development, JSON elsewhere.
+  LOG_FORMAT: ${LOG_FORMAT:-}
+
+x-backend-env: &backend-env
+  <<: *logging-env
+  TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
   CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
   DATABASE_URL: postgresql://sentinel_app:${SENTINEL_DB_APP_PASSWORD:?set in .env}@postgres:5432/${POSTGRES_DB:-sentinel}
   REDIS_URL: redis://:${REDIS_PASSWORD:?set in .env}@redis:6379/0
@@ -68,13 +74,36 @@ services:
       timeout: 3s
       retries: 20
 
+  # One-shot: applies Alembic migrations, then exits. It is the only container
+  # that receives the schema-owner credential; api and worker connect as the
+  # least-privilege sentinel_app role and start only after this succeeds.
+  migrate:
+    <<: *app-hardening
+    restart: "no"
+    build:
+      context: ./backend
+      target: dev
+    image: sentinel-backend:dev
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      <<: *logging-env
+      MIGRATION_DATABASE_URL: postgresql://sentinel_owner:${SENTINEL_DB_OWNER_PASSWORD:?set in .env}@postgres:5432/${POSTGRES_DB:-sentinel}
+    volumes:
+      - ./backend:/app
+    networks: [internal]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   api:
     <<: *app-hardening
     build:
       context: ./backend
       target: dev
     image: sentinel-backend:dev
-    command: ["uvicorn", "app.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    # --no-access-log: our middleware writes the access log with route templates.
+    # --no-proxy-headers: client-IP trust is decided once, by TRUSTED_PROXIES.
+    command: ["uvicorn", "app.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--reload", "--no-access-log", "--no-proxy-headers", "--log-config", "uvicorn-logging.json"]
     environment:
       <<: *backend-env
       WATCHFILES_FORCE_POLLING: ${WATCHFILES_FORCE_POLLING:-false}
@@ -84,8 +113,8 @@ services:
       - "127.0.0.1:${API_PORT:-8000}:8000"
     networks: [internal, edge]
     depends_on:
-      postgres:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
     healthcheck:
@@ -101,7 +130,9 @@ services:
       context: ./backend
       target: dev
     image: sentinel-backend:dev
-    command: ["celery", "-A", "app.core.tasks.celery_app:celery_app", "worker", "--loglevel=INFO", "--queues=default,scans,intel", "--concurrency=2"]
+    # --quiet suppresses the startup banner, which is printed straight to stdout
+    # and would break the one-JSON-object-per-line log contract.
+    command: ["celery", "-A", "app.core.tasks.celery_app:celery_app", "--quiet", "worker", "--loglevel=INFO", "--queues=default,scans,intel", "--concurrency=2"]
     environment:
       <<: *backend-env
     volumes:
@@ -110,6 +141,8 @@ services:
     # tools need (see docs/threat-model.md, the infra denylist and lab network).
     networks: [internal]
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
       api:
