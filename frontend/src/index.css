@@ -1,0 +1,20 @@
+@import "tailwindcss";
+
+/* Dark industrial SOC palette. Text/background pairs are chosen for WCAG AA
+   contrast (4.5:1 or better); the full design system lands in Phase 3. */
+@theme {
+  --color-surface: #0b0f14;
+  --color-panel: #121821;
+  --color-border: #253041;
+  --color-text: #e6edf3;
+  --color-muted: #9aa7b4;
+  --color-accent: #22d3ee;
+  --color-ok: #4ade80;
+  --color-fail: #f87171;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+body {
+  background-color: var(--color-surface);
+  color: var(--color-text);
+}
