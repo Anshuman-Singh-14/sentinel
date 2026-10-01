@@ -34,9 +34,8 @@ containers. See `docs/adr/0001-architecture-and-stack.md`.
   `httpx2` (pydantic org). Decide before Phase 7, where httpx becomes a runtime dependency.
 - slowapi vs a small Redis token bucket on `limits`: decide in Phase 2.
 - The access-log route template relies on a FastAPI 0.14x internal (ADR 0002). A test pins it.
-- Dependabot opened major-version PRs (Postgres 18, Redis 8, Node 26) that contradict the
-  kickoff decisions. The Postgres 18 one fails CI (18 changed the data directory layout).
-  Close them, or add `ignore` rules for semver-major on images.
+- Dependabot now ignores semver-major image updates (docker, docker-compose). Close the
+  already-open Postgres 18 / Redis 8 / Node 26 PRs on GitHub.
 - LICENSE copyright holder (`Anshuman-Singh-14`) needs confirming by the repo owner.
 - The repo lives in OneDrive. Moving it to a non-synced path is recommended.
 
