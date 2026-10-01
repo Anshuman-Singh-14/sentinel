@@ -1,9 +1,7 @@
 """Celery application.
 
-Phase 0 only proves the worker container starts, connects to Redis and answers
-pings. The tool-running base task arrives in Phase 5.
-
-The security-relevant settings are set explicitly instead of relying on defaults:
+The tool-running base task arrives in Phase 5. The security-relevant settings
+are set explicitly instead of relying on defaults:
 
 * JSON-only serialization. Celery can use pickle, and unpickling a message from
   a compromised broker means arbitrary code execution (CLAUDE.md rule 1).
@@ -12,12 +10,16 @@ The security-relevant settings are set explicitly instead of relying on defaults
   rather than lost, and one worker cannot hoard queued long-running scans.
 """
 
+from typing import Any
+
 from celery import Celery
+from celery.signals import setup_logging
 from kombu import Queue
 
 from app.config import get_settings
-
-QUEUES = ("default", "scans", "intel")
+from app.core.logging import configure_logging
+from app.core.tasks import context  # noqa: F401  (connects request-ID propagation signals)
+from app.core.tasks.queues import DEFAULT_QUEUE, QUEUES
 
 _settings = get_settings()
 
@@ -35,12 +37,20 @@ celery_app.conf.update(
     task_soft_time_limit=60,
     task_time_limit=90,
     result_expires=3600,
-    task_default_queue="default",
+    task_default_queue=DEFAULT_QUEUE,
     task_queues=tuple(Queue(name) for name in QUEUES),
     broker_connection_retry_on_startup=True,
+    # Our structlog pipeline owns the root logger (and its redaction step).
+    worker_hijack_root_logger=False,
     timezone="UTC",
     enable_utc=True,
 )
+
+
+@setup_logging.connect
+def _configure_worker_logging(**_: Any) -> None:
+    # Connecting to this signal stops Celery from installing its own logging.
+    configure_logging(get_settings(), service="worker")
 
 
 @celery_app.task(name="sentinel.ping")
