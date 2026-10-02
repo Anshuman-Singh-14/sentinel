@@ -137,7 +137,7 @@ def test_details_are_redacted_before_hashing_and_storage(db: Database) -> None:
                 outcome=Outcome.SUCCESS,
                 details={
                     "provider": "virustotal",
-                    "api_key": "vt-1234567890abcdef",
+                    "api_key": "dummy-api-key",
                     "note": "header was Bearer abc.def.ghi",
                     "nul": "a\x00b",
                 },

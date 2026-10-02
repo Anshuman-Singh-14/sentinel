@@ -23,7 +23,7 @@ from tests.integration.conftest import (
     save_cookies,
 )
 
-NEW_PASSWORD = "copper-lantern-58-meadow"
+NEW_PASSWORD = "test-password-123"
 
 
 def _error_without_request_id(response: Any) -> dict[str, Any]:
