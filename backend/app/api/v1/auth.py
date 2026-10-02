@@ -6,6 +6,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.core.audit import AuditAction, Outcome
 from app.core.audit.context import anonymous_actor
 from app.core.auth.cookies import (
     clear_session_cookies,
@@ -14,13 +15,14 @@ from app.core.auth.cookies import (
 )
 from app.core.auth.csrf import csrf_failure_reason
 from app.core.auth.dependencies import (
+    AuditDep,
     AuthServiceDep,
     PrincipalDep,
     SettingsDep,
     require_allowed_origin,
 )
 from app.core.auth.passwords import MAX_LENGTH
-from app.core.auth.service import IssuedSession
+from app.core.auth.service import IssuedSession, user_actor
 from app.core.errors import CsrfFailed
 from app.db.models import User
 from app.db.models._types import utcnow
@@ -109,7 +111,9 @@ async def refresh(
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
-async def logout(request: Request, auth: AuthServiceDep, settings: SettingsDep) -> Response:
+async def logout(
+    request: Request, auth: AuthServiceDep, audit: AuditDep, settings: SettingsDep
+) -> Response:
     names = cookie_names(settings)
     found = await auth.find_session_for_logout(
         request.cookies.get(names.access), request.cookies.get(names.refresh)
@@ -119,7 +123,15 @@ async def logout(request: Request, auth: AuthServiceDep, settings: SettingsDep) 
         session, user = found
         # Logout changes state, so it needs the CSRF token like any other
         # write; otherwise any site could log users out.
-        if csrf_failure_reason(request, session.csrf_token_hash, settings) is not None:
+        reason = csrf_failure_reason(request, session.csrf_token_hash, settings)
+        if reason is not None:
+            await audit.record(
+                AuditAction.AUTH_ACCESS_DENIED,
+                actor=user_actor(anonymous_actor(request), user, session.id),
+                outcome=Outcome.DENIED,
+                target="POST /api/v1/auth/logout",
+                reason=reason,
+            )
             raise CsrfFailed
         await auth.logout(session, user, anonymous_actor(request))
     clear_session_cookies(response, settings)
