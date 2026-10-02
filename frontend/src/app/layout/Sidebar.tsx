@@ -2,6 +2,7 @@ import {
   Crosshair,
   History,
   LayoutDashboard,
+  ListChecks,
   Lock,
   ScrollText,
   ShieldHalf,
@@ -123,6 +124,12 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           <li>
             <NavEntry
               item={{ id: "runs", label: "Run history", path: "/runs", icon: History }}
+              onNavigate={onNavigate}
+            />
+          </li>
+          <li>
+            <NavEntry
+              item={{ id: "playbooks", label: "Playbooks", path: "/playbooks", icon: ListChecks }}
               onNavigate={onNavigate}
             />
           </li>

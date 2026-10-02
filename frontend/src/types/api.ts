@@ -232,3 +232,104 @@ export interface Acknowledgement {
   statement: string;
   acknowledged_at: string | null;
 }
+
+// --- playbooks (Phase 12) --------------------------------------------------------
+
+export type StepStatus =
+  "PENDING" | "RUNNING" | "COMPLETED" | "FAILED" | "SKIPPED" | "CANCELLED" | "TIMED_OUT";
+
+export interface PlaybookStepInfo {
+  id: string;
+  name: string;
+  tool_id: string;
+  tool_name: string | null;
+  available: boolean;
+  optional: boolean;
+  on_failure: "stop" | "continue";
+  is_active: boolean;
+  description: string;
+}
+
+export interface PlaybookInfo {
+  id: string;
+  name: string;
+  version: string;
+  description: string;
+  available: boolean;
+  unavailable_reason: string | null;
+  requires_authorization: boolean;
+  required_role: Role;
+  inputs_schema: Record<string, unknown>;
+  steps: PlaybookStepInfo[];
+}
+
+export interface PlaybookStepOut {
+  position: number;
+  step_id: string;
+  name: string;
+  tool_id: string;
+  on_failure: "stop" | "continue";
+  status: StepStatus;
+  run: RunSummary | null;
+  resolved_params: Record<string, unknown> | null;
+  error: { code: string; message: string } | null;
+  started_at: string | null;
+  completed_at: string | null;
+}
+
+export interface AggregatedFinding extends Finding {
+  step_id: string;
+  tool_id: string;
+  run_id: string;
+  also_reported_by: string[];
+}
+
+export interface RiskSummary {
+  total: number;
+  by_severity: Record<Severity, number>;
+  highest: Severity | null;
+  headline: string;
+}
+
+export interface PlaybookRunSummary {
+  playbook_run_id: string;
+  playbook_id: string;
+  playbook_name: string;
+  target: string | null;
+  status: RunStatus;
+  initiated_by: string;
+  created_at: string;
+  completed_at: string | null;
+  duration_ms: number | null;
+  finding_count: number;
+  max_severity: Severity | null;
+}
+
+export interface PlaybookRunDetail extends PlaybookRunSummary {
+  playbook_version: string;
+  inputs: Record<string, unknown>;
+  user_id: string;
+  started_at: string | null;
+  progress_pct: number;
+  current_step: string | null;
+  cancel_requested: boolean;
+  error: { code: string; message: string } | null;
+  steps: PlaybookStepOut[];
+  risk: RiskSummary;
+  findings: AggregatedFinding[];
+}
+
+export interface PlaybookRunPage {
+  runs: PlaybookRunSummary[];
+  next_before: string | null;
+}
+
+export interface PlaybookEvent {
+  type: "playbook.update";
+  playbook_run_id: string;
+  status: RunStatus;
+  progress_pct: number;
+  current_step: string | null;
+  steps: Array<{ step_id: string; status: StepStatus }>;
+  ts: string;
+}

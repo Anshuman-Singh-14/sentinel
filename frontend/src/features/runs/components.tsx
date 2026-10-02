@@ -1,6 +1,7 @@
 import { Ban, CircleCheck, CircleX, Clock, LoaderCircle, Timer } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useState } from "react";
+import type { ReactNode } from "react";
 
 import { Badge, JsonViewer, SeverityBadge, cn } from "../../components/ui";
 import type { BadgeTone } from "../../components/ui";
@@ -107,11 +108,12 @@ const FINDING_STATUS_TONE: Record<string, BadgeTone> = {
  * One finding, in the Educational Translation Engine's order: what it is,
  * why it matters, why this severity, how to fix it, then the evidence.
  */
-export function FindingCard({ finding }: { finding: Finding }) {
+export function FindingCard({ finding, source }: { finding: Finding; source?: ReactNode }) {
   const [open, setOpen] = useState(finding.severity !== "INFO");
   const hasEvidence = Object.keys(finding.evidence).length > 0;
   return (
     <li className="rounded border border-border bg-surface">
+      {source && <p className="px-3 pt-2 text-[0.7rem] text-muted">{source}</p>}
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}

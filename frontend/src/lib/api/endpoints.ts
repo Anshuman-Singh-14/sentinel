@@ -9,6 +9,9 @@ import type {
   ScopeRule,
   ScopeView,
   HealthResponse,
+  PlaybookInfo,
+  PlaybookRunDetail,
+  PlaybookRunPage,
   SecurityAlert,
   SessionInfo,
   ToolDescriptor,
@@ -107,4 +110,25 @@ export const scopeApi = {
   setEnabled: (id: string, enabled: boolean) =>
     api.patch<ScopeRule>(`${V1}/admin/scope/${encodeURIComponent(id)}`, { enabled }),
   remove: (id: string) => api.delete<void>(`${V1}/admin/scope/${encodeURIComponent(id)}`),
+};
+
+export const playbooksApi = {
+  list: (signal?: AbortSignal) => api.get<PlaybookInfo[]>(`${V1}/playbooks`, { signal }),
+  start: (playbookId: string, inputs: Record<string, unknown>) =>
+    api.post<PlaybookRunDetail>(`${V1}/playbooks/${encodeURIComponent(playbookId)}/runs`, {
+      inputs,
+    }),
+  get: (id: string, signal?: AbortSignal) =>
+    api.get<PlaybookRunDetail>(`${V1}/playbook-runs/${encodeURIComponent(id)}`, { signal }),
+  runs: (mine: boolean, before?: string, signal?: AbortSignal) =>
+    api.get<PlaybookRunPage>(`${V1}/playbook-runs`, {
+      query: { mine: mine || undefined, before, limit: 20 },
+      signal,
+    }),
+  cancel: (id: string) =>
+    api.post<PlaybookRunDetail>(`${V1}/playbook-runs/${encodeURIComponent(id)}/cancel`),
+  wsTicket: (id: string) =>
+    api.post<{ ticket: string; expires_in: number }>(
+      `${V1}/playbook-runs/${encodeURIComponent(id)}/ws-ticket`,
+    ),
 };
