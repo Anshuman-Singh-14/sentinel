@@ -39,7 +39,7 @@ OWNER_URL = os.environ.get("TEST_OWNER_DATABASE_URL")
 REDIS_URL = os.environ.get("TEST_REDIS_URL")
 BACKEND_DIR = Path(__file__).resolve().parents[2]
 
-PASSWORD = "violet-harbor-71-quartz"
+PASSWORD = "test-password-123"
 ORIGIN = "http://localhost:5173"
 CSRF_COOKIE = "__Host-sentinel_csrf"
 ACCESS_COOKIE = "__Host-sentinel_access"
