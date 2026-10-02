@@ -9,7 +9,7 @@
 | 4 | Client-side utilities | Complete locally, awaiting CI | 289 vitest tests; branch `feat/phase-4-client-utilities` stacked on Phase 3 |
 | 5 | Task infra & DNS | Complete locally, awaiting CI | 404 backend + 311 frontend tests; live DNS run verified; ADR 0006; stacked on Phase 4 |
 | 6 | Scope policy & port scanner | Complete locally, awaiting CI | 498 backend + 319 frontend tests; live lab scan verified; ADR 0007; stacked on Phase 5 |
-| 7 | Header & TLS checker | Not started | Prototype httpx IP pinning with `sni_hostname` first |
+| 7 | Header & TLS checker | Complete locally, awaiting CI | 570 backend tests; fixture servers + live lab verified; ADR 0008; stacked on Phase 6 |
 | 8 | Threat intel | Not started | Stretch scope: two providers fully, third optional |
 | 9 | Network diagnostics | Not started | Stretch. Traceroute best-effort on Docker Desktop |
 | 10 | Log analyzer | Not started | Stretch |
@@ -30,8 +30,8 @@ containers. See `docs/adr/0001-architecture-and-stack.md`.
 
 ## Open items carried forward
 
-- Starlette now warns that TestClient on `httpx` is deprecated in favour of
-  `httpx2` (pydantic org). Decide before Phase 7, where httpx becomes a runtime dependency.
+- Starlette warns that TestClient on `httpx` is deprecated in favour of `httpx2`. Runtime
+  stays on httpx 0.28.1 (ADR 0008); revisit the TestClient dependency when Starlette drops it.
 - Audit export to CSV/JSON (03-logging-audit.md section 6) needs a server endpoint that
   records `audit.exported`. Deferred to Phase 13 with the other exporters.
 - After a frontend dependency change, refresh the `frontend_node_modules` volume:
@@ -40,7 +40,7 @@ containers. See `docs/adr/0001-architecture-and-stack.md`.
   Phase 3 first, then rebase Phase 4 onto `main`.
 - Password analyzer: the optional HIBP k-anonymity check (spec "optional future") is not
   implemented; it would be the only network call in the local tools.
-- Branches are stacked: merge order 3 → 4 → 5 → 6 (`feat/phase-6-scope-portscan`).
+- Branches are stacked: merge order 3 → 4 → 5 → 6 → 7 (`feat/phase-7-header-tls`).
 - Existing dev installs: run `docker compose down` once so networks are recreated with the
   pinned subnets (ADR 0007).
 - Re-check that nginx's `connect-src 'self'` allows same-origin `wss:` in all target
@@ -52,6 +52,50 @@ containers. See `docs/adr/0001-architecture-and-stack.md`.
   already-open Postgres 18 / Redis 8 / Node 26 PRs on GitHub.
 - LICENSE copyright holder (`Anshuman-Singh-14`) needs confirming by the repo owner.
 - The repo lives in OneDrive. Moving it to a non-synced path is recommended.
+
+## Phase 7 log
+
+- **SSRF guard:**
+  - URL shape rules: http/https only, allowlisted ports, no credentials or control
+    characters, at most 2048 characters.
+  - Every hop is scope-checked and pinned to its IP, with Host and SNI preserved.
+  - Manual redirects (at most 5) are re-validated, and a new host is re-scoped via the
+    framework's `scope_check`. Denials are audited (stage `redirect`).
+  - `trust_env=False`, plus caps on response bodies and headers.
+- **Scope tightening:** domain rules no longer cover non-public addresses
+  (`internal_via_domain`).
+- **TLS:**
+  - A verified handshake with the reason for any failure, then an unverified read of the
+    certificate parsed with `cryptography` (new dependency).
+  - RFC 6125 hostname matching and a TLS 1.0/1.1 acceptance probe.
+- **Checks:**
+  - HTTPS availability, the HTTP→HTTPS redirect, and certificate validity, chain, name,
+    expiry, key and signature.
+  - HSTS, CSP (with weakness analysis), clickjacking, nosniff, Referrer-Policy,
+    Permissions-Policy and version disclosure.
+  - Cookie flags. Cookie values are never stored.
+- **Remediation:** knowledge YAML with ready-to-paste nginx and Apache snippets.
+- **Framework:** `BaseTool.scope_host` (a URL tool scope-checks its host) and
+  `ToolContext.scope_check`.
+- **Lab:** `lab-https` (nginx with good headers, an HTTP→HTTPS redirect and a self-signed
+  certificate).
+- **Docs:** ADR 0008, threat model (T11 done; new T52–T54), and the httpx-vs-httpx2
+  question settled.
+- **Local acceptance (2026-10-02):**
+  - Backend: 570 tests pass, with ruff, mypy and bandit clean.
+  - Fixture servers on 127.0.0.1: the good HTTPS site has only INFO findings. The bad HTTP
+    site produces the expected HIGH, MEDIUM and LOW findings. Expired, self-signed and
+    wrong-host certificates are each HIGH, and SNI was verified on the pinned connection.
+  - SSRF: redirects to the metadata IP, `file:`, `gopher:` and credential URLs are not
+    followed, and loops stop at the limit. The live integration test audits the redirect
+    denial.
+  - Live lab:
+    - `http://lab-https:8080/` → 301 → `https://lab-https:8443/`: TLS 1.3, self-signed
+      (HIGH), all headers pass.
+    - `http://lab-web:8080/`: no HTTPS (HIGH), CSP and clickjacking missing (MEDIUM),
+      LOW findings for the remaining headers.
+    - `example.com` (out of scope), `api` (hard-denied) and port 6379 were refused before
+      any request.
 
 ## Phase 6 log
 
