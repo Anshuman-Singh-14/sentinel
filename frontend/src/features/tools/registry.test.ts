@@ -22,11 +22,19 @@ describe("buildToolNavigation", () => {
     expect(local?.items.map((i) => i.label)).toEqual(LOCAL_TOOLS.map((t) => t.name));
   });
 
-  it("disables local tools that have not shipped yet", () => {
+  it("links every shipped local tool under /local/", () => {
     const [local] = buildToolNavigation([], "viewer");
     for (const item of local!.items) {
-      expect(item.disabled).toBe(true);
-      expect(item.tag).toBe("soon");
+      expect(item.disabled).toBe(false);
+      expect(item.tag).toBeUndefined();
+      expect(item.path).toMatch(/^\/local\/[a-z]+$/);
+    }
+  });
+
+  it("gives every local tool a lazy loader that resolves to a component", async () => {
+    for (const tool of LOCAL_TOOLS) {
+      const module = await tool.load();
+      expect(typeof module.default).toBe("function");
     }
   });
 

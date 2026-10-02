@@ -29,6 +29,7 @@ import {
   Wrench,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import type { ComponentType } from "react";
 
 import type { Role, ToolCategory, ToolDescriptor } from "../../types/api";
 import { roleAllows } from "../../types/api";
@@ -40,6 +41,10 @@ export interface LocalToolManifest {
   icon: LucideIcon;
   /** False until the tool's phase ships; shown in the nav as "soon". */
   available: boolean;
+  /** Lazy loader for the tool's page (a separate chunk). */
+  load: () => Promise<{ default: ComponentType }>;
+  /** Extra assets to warm up for offline use (e.g. dictionaries). */
+  prefetch?: () => Promise<unknown>;
 }
 
 export const LOCAL_TOOLS: readonly LocalToolManifest[] = [
@@ -48,32 +53,50 @@ export const LOCAL_TOOLS: readonly LocalToolManifest[] = [
     name: "Password Analyzer",
     description: "Entropy, crack-time estimate and pattern detection.",
     icon: KeyRound,
-    available: false,
+    available: true,
+    load: () => import("./local/password/PasswordTool"),
+    prefetch: () => import("./local/password/estimator").then((m) => m.loadEstimator()),
   },
   {
     id: "jwt",
     name: "JWT Inspector",
     description: "Decode and sanity-check JSON Web Tokens.",
     icon: Fingerprint,
-    available: false,
+    available: true,
+    load: () => import("./local/jwt/JwtTool"),
   },
   {
     id: "hash",
     name: "Hash Tool",
     description: "Generate and verify SHA-family digests.",
     icon: Hash,
-    available: false,
+    available: true,
+    load: () => import("./local/hash/HashTool"),
   },
   {
     id: "encoder",
     name: "Encoder / Decoder",
-    description: "Base64, hex, URL and HTML entity conversion.",
+    description: "Base64, Base64URL, URL and hex conversion.",
     icon: Binary,
-    available: false,
+    available: true,
+    load: () => import("./local/encoder/EncoderTool"),
   },
 ];
 
 /** Optional presentation hints for backend tools, keyed by `tool_id`. */
+/**
+ * Fetch every local tool's chunk in the background once the shell is up, so
+ * the tools keep working if the network drops afterwards (Phase 4 acceptance:
+ * "works offline"). Loading code from our own origin sends no user input.
+ */
+export function prefetchLocalTools(): void {
+  for (const tool of LOCAL_TOOLS) {
+    if (!tool.available) continue;
+    void tool.load().catch(() => undefined);
+    void tool.prefetch?.().catch(() => undefined);
+  }
+}
+
 export const REMOTE_TOOL_META: Record<string, { icon: LucideIcon }> = {
   echo: { icon: Terminal },
   dns_lookup: { icon: Globe },

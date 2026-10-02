@@ -73,6 +73,9 @@ Networks: `edge` (frontend, api) and `internal` (api, worker, postgres, redis;
 | T35 | D | Concurrent refreshes from several tabs tripping refresh-reuse detection (self-inflicted session revocation) | Single-flight refresh per tab plus a Web Locks mutex across tabs | Done (P3) |
 | T36 | D | Hostile, huge or deeply nested tool output freezing the browser | `JsonViewer` caps depth, items and string length; the full value stays available through Copy | Done (P3) |
 | T37 | I | Data cached under one identity shown to the next user on a shared browser | Query cache cleared on login, logout and session expiry; rejected passwords cleared from state | Done (P3) |
+| T38 | I | Client-side tool input (passwords, tokens, secrets, files) leaking to the server, logs or storage | Tools live in their own modules; a static import-graph test bans the API client, network, storage and console APIs; a runtime test drives every tool with all network APIs trapped; input fields disable autocomplete and spellcheck (ADR 0005) | Done (P4) |
+| T39 | T | JWT inspector misleading users: "decoded" read as "verified", or algorithm confusion | Prominent "decoding is not verifying" banner; verification pins the key type to the header's algorithm and refuses public keys as HMAC secrets, `alg: none`, and private keys | Done (P4) |
+| T40 | D | Hostile input freezing the browser (huge paste, pathological password, multi-GB file) | Input caps (1 M chars encoder, 64 KB token, 256 chars to zxcvbn), deferred rendering, chunked file hashing with a 4 GiB cap and cancel | Done (P4) |
 
 ## 5. Accepted risks and environment notes
 
