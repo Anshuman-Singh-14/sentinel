@@ -17,6 +17,7 @@ from app.config import get_settings
 from app.core.errors import install_exception_handlers
 from app.core.http import RequestContextMiddleware, SecurityHeadersMiddleware
 from app.core.logging import configure_logging, get_logger
+from app.core.ratelimit import close_rate_limiter
 from app.db.session import dispose_engine
 from app.engine.knowledge import get_knowledge_base
 from app.engine.registry import registry
@@ -28,6 +29,7 @@ logger = get_logger("sentinel.app")
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("app.startup", tools=len(registry))
     yield
+    await close_rate_limiter()
     await dispose_engine()
     logger.info("app.shutdown")
 
