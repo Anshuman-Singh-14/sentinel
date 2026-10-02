@@ -30,6 +30,17 @@ x-backend-env: &backend-env
   CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
   DATABASE_URL: postgresql://sentinel_app:${SENTINEL_DB_APP_PASSWORD:?set in .env}@postgres:5432/${POSTGRES_DB:-sentinel}
   REDIS_URL: redis://:${REDIS_PASSWORD:?set in .env}@redis:6379/0
+  # Authentication (ADR 0003). Defaults match app/config.py.
+  COOKIE_SECURE: ${COOKIE_SECURE:-true}
+  ACCESS_TOKEN_TTL_MINUTES: ${ACCESS_TOKEN_TTL_MINUTES:-15}
+  REFRESH_TOKEN_IDLE_HOURS: ${REFRESH_TOKEN_IDLE_HOURS:-12}
+  SESSION_ABSOLUTE_HOURS: ${SESSION_ABSOLUTE_HOURS:-24}
+  LOGIN_MAX_FAILURES: ${LOGIN_MAX_FAILURES:-5}
+  LOCKOUT_BASE_SECONDS: ${LOCKOUT_BASE_SECONDS:-60}
+  LOCKOUT_MAX_SECONDS: ${LOCKOUT_MAX_SECONDS:-900}
+  AUTH_RATE_LIMIT_PER_MINUTE: ${AUTH_RATE_LIMIT_PER_MINUTE:-10}
+  ALERT_FAILED_LOGIN_THRESHOLD: ${ALERT_FAILED_LOGIN_THRESHOLD:-5}
+  ALERT_WINDOW_MINUTES: ${ALERT_WINDOW_MINUTES:-10}
 
 services:
   postgres:
@@ -153,6 +164,37 @@ services:
       timeout: 15s
       retries: 5
       start_period: 20s
+
+  # Integration tests against real Postgres and Redis (profile "test", never
+  # started by a plain `docker compose up`):
+  #   docker compose --profile test run --rm test
+  # Uses the separate `sentinel_test` database (infra/postgres/init/02-test-db.sh)
+  # and Redis DB 15, so it never touches dev data. It receives the owner
+  # credential because the audit tests must bypass the append-only trigger
+  # to prove that tampering is detected.
+  test:
+    <<: *app-hardening
+    restart: "no"
+    profiles: [test]
+    build:
+      context: ./backend
+      target: dev
+    image: sentinel-backend:dev
+    command: ["pytest"]
+    environment:
+      <<: *logging-env
+      ENVIRONMENT: test
+      TEST_DATABASE_URL: postgresql://sentinel_app:${SENTINEL_DB_APP_PASSWORD:?set in .env}@postgres:5432/sentinel_test
+      TEST_OWNER_DATABASE_URL: postgresql://sentinel_owner:${SENTINEL_DB_OWNER_PASSWORD:?set in .env}@postgres:5432/sentinel_test
+      TEST_REDIS_URL: redis://:${REDIS_PASSWORD:?set in .env}@redis:6379/15
+    volumes:
+      - ./backend:/app
+    networks: [internal]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
   frontend:
     <<: *app-hardening

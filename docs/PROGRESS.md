@@ -4,7 +4,7 @@
 |---|---|---|---|
 | 0 | Foundation & tooling | Complete | CI green on main (PR #1) |
 | 1 | Core backend & logging | Complete, awaiting CI on PR | 205 backend tests; JSON logs + redaction; Alembic baseline; echo tool |
-| 2 | Identity, RBAC & audit | Not started | DB roles already split (owner/app) in Phase 0 |
+| 2 | Identity, RBAC & audit | Complete locally, awaiting CI | 308 backend tests (267 unit + 41 integration); branch stacked on Phase 1 |
 | 3 | Frontend shell | Not started | |
 | 4 | Client-side utilities | Not started | |
 | 5 | Task infra & DNS | Not started | ADR needed: async tools inside Celery (event loop per process) |
@@ -32,12 +32,54 @@ containers. See `docs/adr/0001-architecture-and-stack.md`.
 
 - Starlette now warns that TestClient on `httpx` is deprecated in favour of
   `httpx2` (pydantic org). Decide before Phase 7, where httpx becomes a runtime dependency.
-- slowapi vs a small Redis token bucket on `limits`: decide in Phase 2.
+- Branch `feat/phase-2-identity-audit` is stacked on `feat/phase-1-core`. Merge Phase 1
+  first, then rebase Phase 2 onto `main` and open its PR.
+- Phase 3 client contract (ADR 0003): `credentials: "include"`, echo the
+  `__Host-sentinel_csrf` cookie as `X-CSRF-Token`, single-flight `/auth/refresh` on 401.
+- Spec gap: the admin audit viewer (03-logging-audit.md section 6) is not assigned to any
+  phase. The backend (`GET /api/v1/admin/audit`, verify, alerts) exists; plan the UI in Phase 3 or 14.
+- Existing dev volumes need the test DB once:
+  `docker compose exec postgres sh /docker-entrypoint-initdb.d/02-test-db.sh`.
 - The access-log route template relies on a FastAPI 0.14x internal (ADR 0002). A test pins it.
 - Dependabot now ignores semver-major image updates (docker, docker-compose). Close the
   already-open Postgres 18 / Redis 8 / Node 26 PRs on GitHub.
 - LICENSE copyright holder (`Anshuman-Singh-14`) needs confirming by the repo owner.
 - The repo lives in OneDrive. Moving it to a non-synced path is recommended.
+
+## Phase 2 log
+
+- **Data model:** `users`, `sessions`, `audit_events` and `security_alerts` in migration 0002.
+  `audit_events` is INSERT/SELECT-only for `sentinel_app`, with UPDATE/DELETE/TRUNCATE
+  triggers and an `id` that is `GENERATED ALWAYS`.
+- **Audit:** `AuditService` with a SHA-256 hash chain kept linear by an advisory lock.
+  Details are redacted before hashing. A failed audit write fails closed. The chain is
+  verified in batches by `POST /admin/audit/verify`.
+- **Alerts:** rules for failed-login bursts, refresh-token reuse and integrity failure.
+  Sinks write a WARNING log line and a `security_alerts` row.
+- **Auth:**
+  - Argon2id hashing (threaded, concurrency capped) and a NIST-style password policy.
+  - Opaque hashed tokens in `__Host-`/`__Secure-` cookies.
+  - Refresh rotation with reuse detection.
+  - Lockout with exponential backoff, plus a per-IP Redis rate limit.
+  - Session-bound CSRF and Origin checks.
+  - No user enumeration.
+- **RBAC:** `require_viewer`, `require_analyst` and `require_admin`. Denials are audited
+  as `auth.access.denied`, an addition to the spec's taxonomy. `GET /tools` now needs viewer.
+- **Admin API:** users (create, role change, disable/enable), sessions (list, revoke),
+  audit (filtered keyset listing, verify) and alerts (list, acknowledge).
+- **CLI:** `python -m app.cli create-admin`, which reads the password from a prompt or stdin.
+- **Tests and CI:**
+  - Compose `test` profile using a separate `sentinel_test` database and Redis DB 15.
+  - CI runs the integration tests plus a CLI-to-login smoke test.
+- **Docs:** ADR 0003 and threat-model rows T24–T32 (T13 now done).
+- **Deviations (recorded in ADR 0003):** a Redis counter instead of slowapi, no `roles`
+  table, opaque tokens instead of JWTs, and the extra `auth.access.denied` and
+  `user.enabled` actions.
+- **Local acceptance (2026-10-02):**
+  - 308 tests pass in the test profile; ruff, mypy and bandit are clean.
+  - Migration upgrade → downgrade → upgrade plus `alembic check` is clean.
+  - Browser-style smoke test through the Vite proxy: login cookies have the correct
+    flags, CSRF is enforced, verify works, and logout invalidates the session.
 
 ## Phase 1 log
 

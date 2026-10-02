@@ -44,9 +44,17 @@ class SentinelError(Exception):
     status_code: ClassVar[int] = 500
     default_message: ClassVar[str] = "An internal error occurred."
 
-    def __init__(self, message: str | None = None, *, details: dict[str, Any] | None = None):
+    def __init__(
+        self,
+        message: str | None = None,
+        *,
+        details: dict[str, Any] | None = None,
+        headers: Mapping[str, str] | None = None,
+    ):
         self.message = message or self.default_message
         self.details = details or {}
+        # Extra response headers, e.g. Retry-After on 429 or WWW-Authenticate on 401.
+        self.headers = dict(headers or {})
         super().__init__(self.message)
 
 
@@ -62,10 +70,23 @@ class AuthenticationRequired(SentinelError):
     default_message = "Authentication is required."
 
 
+class InvalidCredentials(AuthenticationRequired):
+    # One message for every login failure (unknown user, wrong password,
+    # locked, disabled), so the response cannot be used to enumerate accounts.
+    # The real reason is recorded in the audit log only.
+    code = "invalid_credentials"
+    default_message = "Invalid username or password."
+
+
 class PermissionDenied(SentinelError):
     code = "permission_denied"
     status_code = 403
     default_message = "You do not have permission to perform this action."
+
+
+class CsrfFailed(PermissionDenied):
+    code = "csrf_failed"
+    default_message = "The request failed cross-site request forgery validation."
 
 
 class ScopeDenied(PermissionDenied):
@@ -95,6 +116,11 @@ class Conflict(SentinelError):
     default_message = "The request conflicts with the current state."
 
 
+class PasswordPolicyViolation(ValidationFailed):
+    code = "password_policy"
+    default_message = "The password does not meet the password policy."
+
+
 class RateLimited(SentinelError):
     code = "rate_limited"
     status_code = 429
@@ -105,6 +131,19 @@ class ProviderError(SentinelError):
     code = "provider_error"
     status_code = 502
     default_message = "An external service failed to respond correctly."
+
+
+class ServiceUnavailable(SentinelError):
+    code = "service_unavailable"
+    status_code = 503
+    default_message = "A required service is temporarily unavailable."
+
+
+class AuditUnavailable(ServiceUnavailable):
+    # Raised when a security-relevant audit write fails. The action fails
+    # closed rather than going unrecorded (03-logging-audit.md section 5).
+    code = "audit_unavailable"
+    default_message = "The action could not be recorded, so it was not performed."
 
 
 class ToolTimeout(SentinelError):
@@ -148,7 +187,9 @@ async def _handle_sentinel_error(request: Request, exc: Exception) -> JSONRespon
         status=error.status_code,
         error_message=error.message,
     )
-    return _error_response(error.status_code, error.code, error.message, error.details)
+    return _error_response(
+        error.status_code, error.code, error.message, error.details, headers=error.headers
+    )
 
 
 async def _handle_validation_error(request: Request, exc: Exception) -> JSONResponse:

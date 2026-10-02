@@ -1,4 +1,10 @@
 """ORM models. Import every model module here so Alembic autogenerate sees it.
 
-No tables yet: users and audit_events arrive in Phase 2, tool_runs in Phase 5.
+tool_runs and findings arrive in Phase 5.
 """
+
+from app.db.models.alert import SecurityAlert
+from app.db.models.audit import AuditEvent
+from app.db.models.user import User, UserSession
+
+__all__ = ["AuditEvent", "SecurityAlert", "User", "UserSession"]
