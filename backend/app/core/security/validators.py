@@ -86,3 +86,41 @@ def normalize_domain(value: str) -> str:
 
 
 DomainName = Annotated[str, AfterValidator(normalize_domain)]
+
+
+def normalize_host(value: str) -> str:
+    """A scan target: an IP literal or a host name (single-label names allowed).
+
+    Unlike ``normalize_domain`` this does not reject private names: lab hosts
+    such as ``lab-web`` are legitimate targets. Whether a target may be
+    scanned is the scope policy's decision, made after resolution.
+    """
+    candidate = value.strip().lower().removesuffix(".")
+    if not candidate:
+        raise ValueError("Enter a host name or IP address.")
+    if candidate.startswith("[") and candidate.endswith("]"):
+        candidate = candidate[1:-1]
+    try:
+        return str(ipaddress.ip_address(candidate))
+    except ValueError:
+        pass
+    if "://" in candidate or "/" in candidate or ":" in candidate:
+        raise ValueError("Enter a bare host name or IP address, not a URL or host:port.")
+    labels: list[str] = []
+    for raw_label in candidate.split("."):
+        if not raw_label:
+            raise ValueError("The host name contains an empty label (two dots in a row).")
+        try:
+            label = raw_label.encode("idna").decode("ascii")
+        except UnicodeError:
+            raise ValueError("The host name contains characters that cannot be encoded.") from None
+        if not _LABEL_RE.fullmatch(label):
+            raise ValueError(f'"{label}" is not a valid host name label.')
+        labels.append(label)
+    host = ".".join(labels)
+    if len(host) > MAX_DOMAIN_LENGTH:
+        raise ValueError(f"A host name is at most {MAX_DOMAIN_LENGTH} characters.")
+    return host
+
+
+HostTarget = Annotated[str, AfterValidator(normalize_host)]

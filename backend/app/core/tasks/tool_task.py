@@ -31,6 +31,7 @@ from app.core.logging import get_logger
 from app.core.logging.context import bind_context
 from app.core.runs import events
 from app.core.runs.dispatch import RUN_TOOL_TASK
+from app.core.security import scope_service
 from app.core.tasks.celery_app import celery_app
 from app.core.tasks.loop import reset_loop, run_async
 from app.db.models import FindingRow, ToolRun, User
@@ -270,11 +271,40 @@ async def execute_run(run_id: uuid.UUID) -> str:
             await _publish(run)
             return run.status
 
+        authorized: tuple[str, ...] = ()
+        if tool.is_active:
+            # The authoritative scope check: here, in the worker, right before
+            # any traffic, with the worker's own view of DNS (it can resolve
+            # lab names the API cannot) and the policy as it is *now*.
+            decision = await scope_service.evaluate_target(db, run.target or "", settings)
+            if not decision.allowed:
+                await scope_service.record_denial(
+                    build_audit_service("worker"),
+                    actor,
+                    tool_id=run.tool_id,
+                    decision=decision,
+                    stage="worker",
+                    run_id=run.id,
+                )
+                await _finish(
+                    db,
+                    run,
+                    None,
+                    status=RunStatus.FAILED,
+                    errors=[ToolError(code="scope_denied", message=decision.reason)],
+                    actor=actor,
+                    raw_limit=settings.max_raw_output_bytes,
+                )
+                await _publish(run)
+                return run.status
+            authorized = decision.addresses
+
         ctx = ToolContext(
             run_id=run_id,
             logger=logger.bind(run_id=str(run_id), tool_id=run.tool_id),
             progress_callback=on_progress,
             cancel_check=should_cancel,
+            authorized_addresses=authorized,
         )
         result = await execute_tool(
             tool, run.params, run_id=run_id, initiated_by=run.username, ctx=ctx
