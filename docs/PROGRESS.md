@@ -5,11 +5,11 @@
 | 0 | Foundation & tooling | Complete | CI green on main (PR #1) |
 | 1 | Core backend & logging | Complete | 205 backend tests; JSON logs + redaction; Alembic baseline; echo tool |
 | 2 | Identity, RBAC & audit | Complete | 308 backend tests (267 unit + 41 integration); merged (PR #11) |
-| 3 | Frontend shell | Complete locally, awaiting CI | 129 vitest tests; branch `feat/phase-3-frontend-shell`; audit viewer UI included |
-| 4 | Client-side utilities | Complete locally, awaiting CI | 289 vitest tests; branch `feat/phase-4-client-utilities` stacked on Phase 3 |
-| 5 | Task infra & DNS | Complete locally, awaiting CI | 404 backend + 311 frontend tests; live DNS run verified; ADR 0006; stacked on Phase 4 |
-| 6 | Scope policy & port scanner | Complete locally, awaiting CI | 498 backend + 319 frontend tests; live lab scan verified; ADR 0007; stacked on Phase 5 |
-| 7 | Header & TLS checker | Complete locally, awaiting CI | 570 backend tests; fixture servers + live lab verified; ADR 0008; stacked on Phase 6 |
+| 3 | Frontend shell | Complete (merged, PR #12) | 129 vitest tests; ADR 0004; audit viewer UI included |
+| 4 | Client-side utilities | Complete (merged, PR #13) | 289 vitest tests; ADR 0005 |
+| 5 | Task infra & DNS | Complete (merged, PR #14) | 404 backend + 311 frontend tests; live DNS run verified; ADR 0006 |
+| 6 | Scope policy & port scanner | Complete (merged, PR #15) | 498 backend + 319 frontend tests; live lab scan verified; ADR 0007 |
+| 7 | Header & TLS checker | Complete (merged, PR #16) | 570 backend tests; fixture servers + live lab verified; ADR 0008 |
 | 8 | Threat intel | Not started | Stretch scope: two providers fully, third optional |
 | 9 | Network diagnostics | Not started | Stretch. Traceroute best-effort on Docker Desktop |
 | 10 | Log analyzer | Not started | Stretch |
@@ -36,11 +36,8 @@ containers. See `docs/adr/0001-architecture-and-stack.md`.
   records `audit.exported`. Deferred to Phase 13 with the other exporters.
 - After a frontend dependency change, refresh the `frontend_node_modules` volume:
   `docker compose exec frontend npm ci` (rebuilding the image alone does not).
-- Branch `feat/phase-4-client-utilities` is stacked on `feat/phase-3-frontend-shell`. Merge
-  Phase 3 first, then rebase Phase 4 onto `main`.
 - Password analyzer: the optional HIBP k-anonymity check (spec "optional future") is not
   implemented; it would be the only network call in the local tools.
-- Branches are stacked: merge order 3 → 4 → 5 → 6 → 7 (`feat/phase-7-header-tls`).
 - Existing dev installs: run `docker compose down` once so networks are recreated with the
   pinned subnets (ADR 0007).
 - Re-check that nginx's `connect-src 'self'` allows same-origin `wss:` in all target
@@ -48,8 +45,11 @@ containers. See `docs/adr/0001-architecture-and-stack.md`.
 - Existing dev volumes need the test DB once:
   `docker compose exec postgres sh /docker-entrypoint-initdb.d/02-test-db.sh`.
 - The access-log route template relies on a FastAPI 0.14x internal (ADR 0002). A test pins it.
-- Dependabot now ignores semver-major image updates (docker, docker-compose). Close the
-  already-open Postgres 18 / Redis 8 / Node 26 PRs on GitHub.
+- Dependabot ignores semver-major updates for Docker images and npm packages (TypeScript and
+  @types/node majors are deliberate upgrades). PR #9 (TypeScript 7, @types/node 26) was closed
+  for that reason.
+- CI on `main` is green again (2026-10-02): the gitleaks failure since Phase 2 came from fake
+  test credentials, now allowlisted as exact literals in `.gitleaks.toml`.
 - LICENSE copyright holder (`Anshuman-Singh-14`) needs confirming by the repo owner.
 - The repo lives in OneDrive. Moving it to a non-synced path is recommended.
 
