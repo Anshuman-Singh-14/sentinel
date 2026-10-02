@@ -10,3 +10,16 @@ useDefault = true
 [[allowlists]]
 description = "Fake secrets used by the redaction security tests"
 paths = ['''^backend/tests/security/test_redaction\.py$''']
+
+[[allowlists]]
+description = "Fake credentials and public test vectors used in unit/integration tests"
+# Exact literals only (not a pattern for "anything in tests"), so a real
+# secret pasted into a test file still fails the scan.
+regexes = [
+  # Fake passwords and a fake API key in the Phase 2 auth/audit tests.
+  '''^violet-harbor-71-quartz$''',
+  '''^copper-lantern-58-meadow$''',
+  '''^vt-1234567890abcdef$''',
+  # RFC 7519 section 3.1 example JWT (public; used by the JWT inspector tests).
+  '''^eyJ0eXAiOiJKV1QiLA0KICJhbGciOiJIUzI1NiJ9\.eyJpc3MiOiJqb2UiLA0KICJleHAiOjEzMDA4MTkzODAsDQogImh0dHA6Ly9leGFtcGxlLmNvbS9pc19yb290Ijp0cnVlfQ\.dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk$''',
+]
