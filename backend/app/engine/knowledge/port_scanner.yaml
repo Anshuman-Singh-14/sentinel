@@ -1,0 +1,234 @@
+# Knowledge entries for the `port_scanner` tool.
+# Exposure severities follow CIS Controls v8 (4.4 / 4.8: restrict and remove
+# unnecessary network services), NIST SP 800-41 (firewall policy) and the CWE
+# entries cited. CVE findings take their severity from CVSS v3.1 (severity.py).
+schema_version: 1
+namespace: port_scanner
+version: "1.0.0"
+entries:
+  port_scanner.summary:
+    title: $open_count open TCP port(s) on $target
+    explanation: >-
+      $ports_scanned ports were checked on $address: $open_count open, $closed_count
+      closed (the host answered "nothing here"), $filtered_count filtered (no answer,
+      usually a firewall). Every open port is a door: each one is explained below.
+    remediation: >-
+      Close or firewall every port that does not need to be reachable from where this
+      scan ran. Fewer exposed services means a smaller attack surface.
+    severity: INFO
+    severity_rationale: Informational inventory of reachable services.
+    references: ["CIS Controls v8 4.4"]
+
+  port_scanner.none_open:
+    title: No open TCP ports found on $target
+    explanation: >-
+      None of the $ports_scanned scanned ports accepted a connection ($closed_count closed,
+      $filtered_count filtered). Either nothing is listening or a firewall blocks this
+      scanner. Ports outside the scanned set were not checked.
+    remediation: No action needed. Scan a wider port set if you expected services here.
+    severity: INFO
+    severity_rationale: Nothing exposed in the scanned range.
+    references: []
+
+  port_scanner.cleartext_admin:
+    title: $service exposed on port $port (clear-text remote login)
+    explanation: >-
+      $service sends usernames, passwords and the whole session unencrypted. Anyone on
+      the network path can read or hijack it. These protocols predate modern security
+      and have no safe configuration.
+    remediation: >-
+      Disable $service and use SSH with key-based authentication instead. If a legacy
+      device requires it, isolate it on a management network.
+    severity: HIGH
+    severity_rationale: >-
+      Clear-text credentials over the network (CWE-319, CWE-523) on an administrative
+      service: interception leads directly to system access.
+    references: ["CWE-319", "CWE-523", "CIS Controls v8 4.8"]
+
+  port_scanner.cleartext_file:
+    title: $service exposed on port $port (clear-text file transfer)
+    explanation: >-
+      $service transfers credentials and files without encryption, so both can be read
+      or altered in transit. Anonymous access, if enabled, may expose data to anyone.
+    remediation: >-
+      Replace with SFTP (over SSH) or FTPS, disable anonymous access, and restrict the
+      port to the hosts that need it.
+    severity: MEDIUM
+    severity_rationale: >-
+      Clear-text transmission of credentials and data (CWE-319); less direct than a
+      clear-text admin shell.
+    references: ["CWE-319"]
+
+  port_scanner.database:
+    title: $service database port $port is reachable
+    explanation: >-
+      Databases should only be reachable by the applications that use them. An exposed
+      $service invites password guessing and exploitation, and several (Redis,
+      MongoDB, Elasticsearch, Memcached) historically ran without authentication by
+      default, which led to mass data theft and ransom wipes.
+    remediation: >-
+      Bind the database to localhost or a private network, firewall the port, require
+      authentication and TLS, and keep it patched.
+    severity: HIGH
+    severity_rationale: >-
+      Direct exposure of a data store (CWE-668); compromise typically means data
+      breach. CIS Controls v8 4.4 requires restricting such services.
+    references: ["CWE-668", "CIS Controls v8 4.4"]
+
+  port_scanner.remote_desktop:
+    title: $service exposed on port $port (remote desktop)
+    explanation: >-
+      Remote desktop services are among the most attacked entry points: password
+      spraying, credential stuffing and protocol vulnerabilities such as BlueKeep (RDP)
+      or weak VNC passwords.
+    remediation: >-
+      Put remote desktop behind a VPN or a gateway with multi-factor authentication,
+      and never expose it directly to untrusted networks.
+    severity: HIGH
+    severity_rationale: >-
+      Interactive remote access surface (CWE-284) frequently used for initial access
+      in ransomware incidents (CISA guidance).
+    references: ["CWE-284", "https://www.cisa.gov/stopransomware"]
+
+  port_scanner.file_sharing:
+    title: $service exposed on port $port (file sharing)
+    explanation: >-
+      Windows file sharing and RPC services leak host information and have a long
+      history of wormable vulnerabilities (EternalBlue / WannaCry over SMB).
+    remediation: Block these ports at the network edge; allow them only between trusted hosts.
+    severity: HIGH
+    severity_rationale: >-
+      Historically wormable service class (MS17-010); should never cross trust
+      boundaries (CIS Controls v8 4.4).
+    references: ["CWE-284", "MS17-010"]
+
+  port_scanner.container_api:
+    title: $service exposed on port $port
+    explanation: >-
+      Container and orchestration APIs control the host. An unauthenticated Docker API
+      on 2375, for example, lets anyone start a privileged container and take over the
+      machine.
+    remediation: >-
+      Never expose these APIs to untrusted networks. Require mutual TLS, and use a
+      local socket or an SSH tunnel for administration.
+    severity: CRITICAL
+    severity_rationale: >-
+      Exposed management API granting host-level control (CWE-306 when
+      unauthenticated); exploitation is trivial and complete.
+    references: ["CWE-306", "CIS Docker Benchmark 2.6"]
+
+  port_scanner.remote_admin:
+    title: $service exposed on port $port
+    explanation: >-
+      $service is encrypted, but an exposed login service still attracts constant
+      password-guessing bots.
+    remediation: >-
+      Disable password login (keys only), disable root login, rate-limit with fail2ban,
+      and restrict source addresses where possible.
+    severity: LOW
+    severity_rationale: >-
+      Encrypted administrative service; risk is credential brute force (CWE-307),
+      mitigated by key-only authentication.
+    references: ["CWE-307"]
+
+  port_scanner.mail_cleartext:
+    title: $service on port $port allows clear-text mail login
+    explanation: >-
+      Unencrypted POP3/IMAP sends mailbox passwords in clear text unless the server
+      enforces STARTTLS before login.
+    remediation: Offer only the TLS ports (993 / 995) and disable the clear-text ones.
+    severity: LOW
+    severity_rationale: Possible clear-text credentials (CWE-319), often mitigated by STARTTLS.
+    references: ["CWE-319"]
+
+  port_scanner.mail:
+    title: $service on port $port
+    explanation: >-
+      A mail service is listening. That is expected on a mail server; elsewhere it may
+      be an unintended open relay.
+    remediation: Confirm the host should handle mail and that relaying requires authentication.
+    severity: INFO
+    severity_rationale: Expected service for mail hosts; informational.
+    references: []
+
+  port_scanner.web:
+    title: $service on port $port (clear-text HTTP)
+    explanation: >-
+      A web service answers without TLS. Anything sent to it, including logins and
+      cookies, can be read or modified on the network path.
+    remediation: Serve over HTTPS and redirect HTTP to HTTPS, or close the port.
+    severity: LOW
+    severity_rationale: >-
+      Clear-text transport (CWE-319). Rated LOW because a redirect to HTTPS is common;
+      the header/TLS checker (Phase 7) assesses it in depth.
+    references: ["CWE-319", "https://owasp.org/www-project-secure-headers/"]
+
+  port_scanner.web_tls:
+    title: $service on port $port (TLS)
+    explanation: An encrypted service is listening. Its certificate and configuration are not checked here.
+    remediation: Check the TLS configuration with the header and TLS checker.
+    severity: INFO
+    severity_rationale: Encrypted service; informational.
+    references: []
+
+  port_scanner.directory:
+    title: $service on port $port (directory service)
+    explanation: >-
+      LDAP directories hold users, groups and often password hashes. Anonymous binds or
+      clear-text LDAP expose the organisation's structure and credentials.
+    remediation: Require LDAPS or StartTLS, disable anonymous binds and restrict access.
+    severity: MEDIUM
+    severity_rationale: Information disclosure (CWE-200) and possible clear-text credentials (CWE-319).
+    references: ["CWE-200", "CWE-319"]
+
+  port_scanner.message_queue:
+    title: $service on port $port (message broker)
+    explanation: >-
+      Message brokers often ship with default credentials; an exposed broker can leak or
+      inject application messages.
+    remediation: Require authentication and TLS, change default credentials and restrict access.
+    severity: MEDIUM
+    severity_rationale: Exposure of an internal integration service (CWE-668).
+    references: ["CWE-668"]
+
+  port_scanner.infrastructure:
+    title: $service on port $port
+    explanation: >-
+      A network infrastructure service is listening. Open resolvers and portmappers can
+      be abused for amplification or information gathering.
+    remediation: Restrict the service to the clients that need it.
+    severity: LOW
+    severity_rationale: Limited exposure; misuse risk depends on configuration (CWE-406).
+    references: ["CWE-406"]
+
+  port_scanner.unknown:
+    title: Open port $port (service not identified)
+    explanation: >-
+      Something accepts connections on port $port, but it is not a well-known service
+      port$banner_note.
+    remediation: Identify what is listening (ss -ltnp on the host) and close it if it is not needed.
+    severity: INFO
+    severity_rationale: Unidentified service; severity cannot be assessed without knowing it.
+    references: []
+
+  port_scanner.cve_match:
+    title: $cve_id may affect $product $version (port $port)
+    explanation: >-
+      $description
+    remediation: >-
+      Verify the installed version on the host (not just the banner). If affected,
+      upgrade $product to a fixed release or apply the vendor or distribution patch.
+      Details and fixed versions: $url
+    severity: INFO
+    severity_rationale: Replaced at runtime by the CVSS-based rationale.
+    references: []
+
+  port_scanner.product_no_cves:
+    title: $product $version identified on port $port (no CVEs found)
+    explanation: >-
+      The banner identifies $product $version. The NVD lists no CVEs for this exact
+      version.
+    remediation: Keep it updated; absence of known CVEs is not a guarantee of security.
+    severity: INFO
+    severity_rationale: No known vulnerabilities matched.
+    references: []
