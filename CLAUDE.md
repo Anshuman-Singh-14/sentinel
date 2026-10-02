@@ -63,6 +63,7 @@ docker compose run --rm migrate alembic upgrade head                       # app
 docker compose run --rm migrate alembic revision --autogenerate -m "msg"   # new migration
 docker compose run --rm migrate alembic check                              # models vs DB drift
 docker compose exec frontend npm run test       # frontend tests
+docker compose exec frontend npm ci             # after a frontend dependency change (refreshes the node_modules volume)
 docker compose exec frontend npm run lint
 LOG_FORMAT=json docker compose up -d            # JSON logs locally (default in dev: console)
 ```

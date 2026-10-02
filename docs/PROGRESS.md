@@ -3,9 +3,9 @@
 | Phase | Name | Status | Notes |
 |---|---|---|---|
 | 0 | Foundation & tooling | Complete | CI green on main (PR #1) |
-| 1 | Core backend & logging | Complete, awaiting CI on PR | 205 backend tests; JSON logs + redaction; Alembic baseline; echo tool |
-| 2 | Identity, RBAC & audit | Complete locally, awaiting CI | 308 backend tests (267 unit + 41 integration); branch stacked on Phase 1 |
-| 3 | Frontend shell | Not started | |
+| 1 | Core backend & logging | Complete | 205 backend tests; JSON logs + redaction; Alembic baseline; echo tool |
+| 2 | Identity, RBAC & audit | Complete | 308 backend tests (267 unit + 41 integration); merged (PR #11) |
+| 3 | Frontend shell | Complete locally, awaiting CI | 129 vitest tests; branch `feat/phase-3-frontend-shell`; audit viewer UI included |
 | 4 | Client-side utilities | Not started | |
 | 5 | Task infra & DNS | Not started | ADR needed: async tools inside Celery (event loop per process) |
 | 6 | Scope policy & port scanner | Not started | Include the infra hard denylist + `lab` network |
@@ -32,12 +32,11 @@ containers. See `docs/adr/0001-architecture-and-stack.md`.
 
 - Starlette now warns that TestClient on `httpx` is deprecated in favour of
   `httpx2` (pydantic org). Decide before Phase 7, where httpx becomes a runtime dependency.
-- Branch `feat/phase-2-identity-audit` is stacked on `feat/phase-1-core`. Merge Phase 1
-  first, then rebase Phase 2 onto `main` and open its PR.
-- Phase 3 client contract (ADR 0003): `credentials: "include"`, echo the
-  `__Host-sentinel_csrf` cookie as `X-CSRF-Token`, single-flight `/auth/refresh` on 401.
-- Spec gap: the admin audit viewer (03-logging-audit.md section 6) is not assigned to any
-  phase. The backend (`GET /api/v1/admin/audit`, verify, alerts) exists; plan the UI in Phase 3 or 14.
+- Audit export to CSV/JSON (03-logging-audit.md section 6) needs a server endpoint that
+  records `audit.exported`. Deferred to Phase 13 with the other exporters.
+- After a frontend dependency change, refresh the `frontend_node_modules` volume:
+  `docker compose exec frontend npm ci` (rebuilding the image alone does not).
+- Phase 5: WebSocket auth (T12) and `useRunStatus` build on the Phase 3 API client.
 - Existing dev volumes need the test DB once:
   `docker compose exec postgres sh /docker-entrypoint-initdb.d/02-test-db.sh`.
 - The access-log route template relies on a FastAPI 0.14x internal (ADR 0002). A test pins it.
@@ -45,6 +44,43 @@ containers. See `docs/adr/0001-architecture-and-stack.md`.
   already-open Postgres 18 / Redis 8 / Node 26 PRs on GitHub.
 - LICENSE copyright holder (`Anshuman-Singh-14`) needs confirming by the repo owner.
 - The repo lives in OneDrive. Moving it to a non-synced path is recommended.
+
+## Phase 3 log
+
+- **Dependencies (exact pins):** `react-router` 8.4.0, `@tanstack/react-query` 5.104.1,
+  `lucide-react` 1.49.0, dev `@testing-library/user-event` 14.6.7. See ADR 0004.
+- **API client (`src/lib/api`):**
+  - Same-origin paths only, a timeout on every request and `redirect: "error"`.
+  - CSRF echo on every write.
+  - Typed `ApiError` built from the error envelope.
+  - Single-flight refresh with a Web Locks cross-tab mutex, and a session-expiry event.
+- **Auth:**
+  - `/auth/me` query, login page, `RequireAuth` (user published via context) and
+    `RequireRole`.
+  - Open-redirect-safe `?next=`, account page with password change, logout.
+  - The query cache is cleared whenever the identity changes.
+- **Shell:**
+  - Sidebar built from the frontend manifest plus `GET /tools` (local tools listed as
+    "soon"; unknown backend tools get a fallback icon).
+  - Top bar with the user, role, an admin alerts bell and sign-out.
+  - Status area polling `/health`, a skip link and a mobile drawer.
+- **Design system:**
+  - Primitives: `Card`, `Badge`, `SeverityBadge`, `Button`, `TextField`, `DataTable`,
+    `JsonViewer`, `Tabs`, `Toast`, `Drawer` and `Spinner`.
+  - Tokens in `index.css`, with a contrast test enforcing WCAG AA.
+- **Pages:** dashboard, tool page (descriptor and parameter schema), account, not-found,
+  route error, and the admin audit viewer (filters, keyset paging, detail drawer, chain
+  verification, alerts with acknowledge).
+- **Docs:** ADR 0004, threat-model rows T33–T37, and T9 updated.
+- **Deviation:** `credentials: "same-origin"` instead of ADR 0003's `"include"`. It sends the
+  same cookies for relative URLs and is stricter.
+- **Local acceptance (2026-10-02):**
+  - 129 vitest tests pass; eslint, prettier and tsc are clean; `npm audit` reports 0
+    vulnerabilities.
+  - The production build has no inline scripts or styles, so the nginx CSP still holds.
+  - Vite dev server: every module transforms. Through the proxy, login → `/me` → `/tools`
+    works, verify without CSRF is rejected and with CSRF returns 200, refresh rotates,
+    logout returns 204, and `/me` afterwards returns 401.
 
 ## Phase 2 log
 
