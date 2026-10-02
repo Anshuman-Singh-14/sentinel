@@ -13,18 +13,26 @@ dependencies = [
     "asyncpg==0.31.0",            # async Postgres driver (/ready now, SQLAlchemy in Phase 1)
     "redis==8.1.0",               # async Redis client (/ready, later pub/sub + rate limits)
     "celery[redis]==5.6.3",       # task workers
+    "structlog==26.1.0",          # structured JSON logging
+    "sqlalchemy[asyncio]==2.1.1", # async ORM
+    "alembic==1.20.0",            # schema migrations (CLAUDE.md rule 10)
+    "pyyaml==6.0.3",              # knowledge base YAML (safe_load only)
+    "argon2-cffi==25.1.0",        # Argon2id password hashing (03-logging-audit.md section 1)
+    "dnspython==2.8.0",           # async DNS resolver for dns_lookup (no shell `dig`, CLAUDE.md rule 1)
+    "httpx==0.28.1",              # async HTTP client (NVD API; later header/TLS checker and threat intel)
+    "cryptography==50.0.2",       # X.509 parsing of certificates that fail verification (header_tls)
 ]
 
 [dependency-groups]
 dev = [
     "pytest==9.1.1",
     "pytest-asyncio==1.4.0",
-    "httpx==0.28.1",              # required by FastAPI TestClient
     "ruff==0.16.9",
     "mypy==2.3.1",
     "bandit==1.9.4",
     "pip-audit==2.10.1",
     "pre-commit==4.6.2",
+    "types-PyYAML==6.0.12.20260906",
 ]
 
 [tool.uv]
@@ -43,7 +51,9 @@ select = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101"]  # assert is the point of a test
+# Tests assert, and use deliberately fake secrets to prove redaction works.
+"tests/**" = ["S101", "S105", "S106"]
+"app/tools/*/tests/**" = ["S101", "S105", "S106"]
 
 [tool.mypy]
 python_version = "3.12"
@@ -61,9 +71,9 @@ module = ["app.core.tasks.*"]
 disallow_untyped_decorators = false
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "app/tools"]
 asyncio_mode = "auto"
 addopts = "-ra -p no:cacheprovider"
 
 [tool.bandit]
-exclude_dirs = ["tests"]
+exclude_dirs = ["tests", "app/tools/*/tests"]

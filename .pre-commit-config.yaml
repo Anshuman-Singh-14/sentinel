@@ -48,6 +48,10 @@ repos:
           - pydantic-settings==2.15.0
           - fastapi==0.142.2
           - redis==8.1.0
+          - structlog==26.1.0
+          - sqlalchemy[asyncio]==2.1.1
+          - alembic==1.20.0
+          - types-PyYAML==6.0.12.20260906
           - pytest==9.1.1
           - httpx==0.28.1
 

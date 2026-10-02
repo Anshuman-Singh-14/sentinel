@@ -1,0 +1,264 @@
+# Knowledge entries for the `dns_lookup` tool.
+# Severities follow documented guidance: RFC 7208 (SPF), RFC 7489 (DMARC),
+# RFC 8659 (CAA), RFC 1034 (name server redundancy) and the OWASP / CWE
+# references given per entry. Placeholders use $name syntax.
+schema_version: 1
+namespace: dns
+version: "1.0.0"
+entries:
+  dns.nxdomain:
+    title: Domain does not exist
+    explanation: >-
+      The DNS answered NXDOMAIN for $domain: the name is not registered or has no
+      records. No further checks were possible.
+    remediation: >-
+      Check the spelling. If the domain should exist, check its registration and the
+      delegation at the registrar.
+    severity: INFO
+    severity_rationale: >-
+      Informational: a non-existent name exposes no configuration to assess.
+    references: ["RFC 1035"]
+
+  dns.records_summary:
+    title: DNS records collected
+    explanation: >-
+      $domain resolves to $ip_count address(es) ($ips). $record_count records were
+      collected across A, AAAA, CNAME, MX, NS, TXT, SOA and CAA. The raw tab shows
+      every record.
+    remediation: >-
+      No action needed. Review the records for anything you do not recognise: stale
+      entries are a common source of exposure.
+    severity: INFO
+    severity_rationale: Informational inventory of public DNS data.
+    references: []
+
+  dns.no_address:
+    title: No IPv4 or IPv6 address
+    explanation: >-
+      $domain has no A or AAAA record, so it does not point at a web server or other
+      host. That is normal for domains used only for mail or as aliases.
+    remediation: No action needed unless the domain is expected to serve a website.
+    severity: INFO
+    severity_rationale: Informational; absence of an address is not a weakness.
+    references: []
+
+  dns.private_address:
+    title: Public DNS publishes a private IP address
+    explanation: >-
+      $domain resolves to $ips, which is not reachable from the internet (private,
+      loopback or link-local range). Publishing internal addresses reveals network
+      layout to anyone and can enable DNS rebinding attacks against browsers.
+    remediation: >-
+      Remove internal addresses from public zones. Use split-horizon DNS so internal
+      names resolve only on the internal network.
+    severity: LOW
+    severity_rationale: >-
+      Information disclosure (CWE-200) that aids reconnaissance but does not by itself
+      grant access.
+    references: ["CWE-200", "RFC 1918"]
+
+  dns.spf_missing:
+    title: No SPF record
+    explanation: >-
+      $domain receives mail (it has MX records) but publishes no SPF record. Receiving
+      servers cannot tell which servers may send mail as @$domain, which makes it
+      easier to spoof the domain in phishing emails.
+    remediation: >-
+      Publish a TXT record listing your senders and ending in -all, for example:
+      `v=spf1 include:_spf.google.com -all`.
+    severity: MEDIUM
+    severity_rationale: >-
+      Enables email spoofing of the domain (CWE-290), a common phishing vector, but
+      requires a separate delivery step to exploit.
+    references: ["RFC 7208", "CWE-290"]
+
+  dns.spf_missing_no_mail:
+    title: No SPF record (domain does not appear to send mail)
+    explanation: >-
+      $domain has no MX and no SPF record. Attackers still can send mail claiming to
+      be from it; domains that never send mail should say so explicitly.
+    remediation: >-
+      Publish a "null" SPF record, `v=spf1 -all`, together with a DMARC record of
+      `v=DMARC1; p=reject`.
+    severity: LOW
+    severity_rationale: >-
+      Spoofing remains possible, but a domain without mail use is a less convincing
+      phishing sender.
+    references: ["RFC 7208", "https://www.gov.uk/guidance/protect-domains-that-dont-send-email"]
+
+  dns.spf_multiple:
+    title: More than one SPF record
+    explanation: >-
+      $domain publishes $count SPF records. RFC 7208 allows exactly one; with several,
+      receivers return a permanent error and treat the domain as having no valid SPF.
+    remediation: Merge them into a single `v=spf1 ...` TXT record.
+    severity: MEDIUM
+    severity_rationale: >-
+      Equivalent to having no SPF at all for most receivers (RFC 7208 section 4.5).
+    references: ["RFC 7208"]
+
+  dns.spf_pass_all:
+    title: SPF allows every server (+all)
+    explanation: >-
+      The SPF record ends with "+all", which authorises the entire internet to send
+      mail as @$domain. It is worse than having no SPF: it actively vouches for
+      spoofed mail. Record: $record
+    remediation: Replace "+all" with "-all" (or "~all" while testing).
+    severity: HIGH
+    severity_rationale: >-
+      Actively authenticates forged mail (CWE-290), defeating SPF-based filtering.
+    references: ["RFC 7208", "CWE-290"]
+
+  dns.spf_neutral:
+    title: SPF does not reject unlisted senders
+    explanation: >-
+      The SPF record ends with "$qualifier" (or has no "all" term), so mail from
+      servers you did not list is treated as neutral rather than failing. Record:
+      $record
+    remediation: End the record with "-all" once all legitimate senders are listed.
+    severity: LOW
+    severity_rationale: >-
+      Weakens anti-spoofing; receivers rely on DMARC and other signals instead.
+    references: ["RFC 7208"]
+
+  dns.spf_ok:
+    title: SPF record restricts senders
+    explanation: >-
+      The SPF record ends with "$qualifier", so mail from unlisted servers fails (-all)
+      or soft-fails (~all) SPF checks. Record: $record
+    remediation: >-
+      Keep the sender list current. "~all" is acceptable when DMARC enforcement is in
+      place; "-all" is stricter.
+    severity: INFO
+    severity_rationale: Configured as recommended by RFC 7208.
+    references: ["RFC 7208"]
+
+  dns.dmarc_missing:
+    title: No DMARC policy
+    explanation: >-
+      There is no DMARC record at _dmarc.$domain. Without DMARC, receivers have no
+      instruction on what to do with mail that fails SPF/DKIM, and you receive no
+      reports of who is sending as your domain.
+    remediation: >-
+      Start with `v=DMARC1; p=none; rua=mailto:dmarc@$domain` to collect reports, then
+      move to p=quarantine and p=reject.
+    severity: MEDIUM
+    severity_rationale: >-
+      Leaves the domain open to direct spoofing (CWE-290); DMARC is required by major
+      mailbox providers for bulk senders.
+    references: ["RFC 7489", "CWE-290"]
+
+  dns.dmarc_invalid:
+    title: DMARC record is invalid
+    explanation: >-
+      The record at _dmarc.$domain is not a single valid DMARC record ($reason).
+      Receivers ignore it.
+    remediation: Publish exactly one TXT record starting with `v=DMARC1;` and containing `p=`.
+    severity: MEDIUM
+    severity_rationale: An invalid record gives the same protection as none.
+    references: ["RFC 7489"]
+
+  dns.dmarc_none:
+    title: DMARC is in monitoring mode only (p=none)
+    explanation: >-
+      The DMARC policy is "none": failing mail is still delivered. This is the right
+      first step for collecting reports, but it does not stop spoofing.
+    remediation: After reviewing reports, move to p=quarantine and then p=reject.
+    severity: LOW
+    severity_rationale: >-
+      Visibility without enforcement; spoofed mail is still delivered.
+    references: ["RFC 7489"]
+
+  dns.dmarc_partial:
+    title: DMARC applies to only part of the mail
+    explanation: >-
+      The policy "$policy" has pct=$pct, so only $pct% of failing messages are
+      subject to it.
+    remediation: Raise pct to 100 once you are confident in the configuration.
+    severity: LOW
+    severity_rationale: Enforcement is incomplete by design.
+    references: ["RFC 7489"]
+
+  dns.dmarc_enforced:
+    title: DMARC policy enforced (p=$policy)
+    explanation: >-
+      Mail that fails SPF and DKIM alignment is $action by receivers that honour
+      DMARC. Record: $record
+    remediation: No action needed. Keep monitoring aggregate reports.
+    severity: INFO
+    severity_rationale: Configured as recommended by RFC 7489.
+    references: ["RFC 7489"]
+
+  dns.caa_missing:
+    title: No CAA record
+    explanation: >-
+      $domain does not restrict which certificate authorities may issue TLS
+      certificates for it. Any public CA can issue one, which widens the impact of a
+      mis-issuance or a compromised CA account.
+    remediation: >-
+      Publish CAA records for the CAs you use, e.g. `0 issue "letsencrypt.org"` and
+      `0 iodef "mailto:security@$domain"`.
+    severity: LOW
+    severity_rationale: >-
+      Defence-in-depth control (RFC 8659); its absence is not directly exploitable.
+    references: ["RFC 8659"]
+
+  dns.caa_present:
+    title: CAA restricts certificate issuance
+    explanation: >-
+      Only these certificate authorities may issue certificates: $issuers.
+    remediation: Keep the list in sync with the CAs you actually use.
+    severity: INFO
+    severity_rationale: Configured as recommended by RFC 8659.
+    references: ["RFC 8659"]
+
+  dns.cname_dangling:
+    title: Dangling CNAME (possible subdomain takeover)
+    explanation: >-
+      $name is an alias (CNAME) for $target, but $target does not exist. If the
+      target is on a hosting service (cloud storage, PaaS, CDN), anyone who claims
+      that name there controls content served on $name.
+    remediation: >-
+      Delete the CNAME, or re-create the target resource you own. Remove DNS records
+      whenever a hosted service is decommissioned.
+    severity: HIGH
+    severity_rationale: >-
+      Subdomain takeover allows serving attacker content and stealing cookies scoped
+      to the parent domain (OWASP WSTG-CONF-10). Confidence is medium: the target may
+      be deliberately unregistered.
+    references: ["https://owasp.org/www-project-web-security-testing-guide/", "CWE-350"]
+
+  dns.ns_single:
+    title: Only one name server
+    explanation: >-
+      $domain is served by a single name server ($nameservers). If it fails, the
+      whole domain (web, mail, everything) stops resolving.
+    remediation: >-
+      Use at least two name servers on different networks, as RFC 1034 requires.
+    severity: MEDIUM
+    severity_rationale: >-
+      Single point of failure for availability (RFC 1034 section 4.1 requires at least
+      two).
+    references: ["RFC 1034", "RFC 2182"]
+
+  dns.ns_single_provider:
+    title: All name servers belong to one provider
+    explanation: >-
+      Every name server is under $provider. An outage or DDoS at that provider takes
+      the domain offline (as in the 2016 Dyn attack).
+    remediation: >-
+      For critical domains, consider a secondary DNS provider. This is a resilience
+      trade-off, not a requirement.
+    severity: LOW
+    severity_rationale: >-
+      Availability risk only; most domains accept it. Provider grouping is inferred
+      from host names, so confidence is medium.
+    references: ["RFC 2182"]
+
+  dns.ns_redundant:
+    title: Name servers are redundant
+    explanation: $domain uses $count name servers across $providers provider(s).
+    remediation: No action needed.
+    severity: INFO
+    severity_rationale: Meets RFC 1034 redundancy guidance.
+    references: ["RFC 1034"]

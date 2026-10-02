@@ -1,0 +1,443 @@
+# Knowledge entries for the `header_tls` tool.
+# Severity sources: OWASP Secure Headers Project, Mozilla Web Security
+# Guidelines, RFC 6797 (HSTS), RFC 8996 (deprecating TLS 1.0/1.1),
+# NIST SP 800-52r2, and the CWE entries cited. "$$" renders as a literal "$"
+# (needed for nginx variables in snippets).
+schema_version: 1
+namespace: header_tls
+version: "1.0.0"
+entries:
+  header_tls.unreachable:
+    title: Could not get a response from $url
+    explanation: >-
+      No HTTP response was received ($reason). Header and TLS checks need a working
+      response, so nothing else could be assessed.
+    remediation: Check that the URL is correct and the service is running and reachable from Sentinel.
+    severity: INFO
+    severity_rationale: Nothing could be assessed.
+    references: []
+
+  header_tls.redirect_not_followed:
+    title: A redirect was not followed
+    explanation: >-
+      $url redirected to $location, which was not followed: $note. Results describe
+      the last response that was allowed.
+    remediation: >-
+      If the destination should be checked, check it directly (an admin may need to
+      add it to the scope policy).
+    severity: INFO
+    severity_rationale: Informational; the SSRF guard and scope policy limit where requests go.
+    references: []
+
+  # --- transport -----------------------------------------------------------------
+
+  header_tls.no_https:
+    title: The site is not available over HTTPS
+    explanation: >-
+      $host answers only over plain HTTP. Everything users send and receive,
+      including passwords and session cookies, can be read and modified by anyone on
+      the network path.
+    remediation: |-
+      Get a free certificate (e.g. Let's Encrypt with certbot) and serve the site over HTTPS.
+      nginx:
+        server {
+            listen 443 ssl;
+            server_name example.com;
+            ssl_certificate     /etc/letsencrypt/live/example.com/fullchain.pem;
+            ssl_certificate_key /etc/letsencrypt/live/example.com/privkey.pem;
+        }
+      Apache:
+        <VirtualHost *:443>
+            SSLEngine on
+            SSLCertificateFile    /etc/letsencrypt/live/example.com/fullchain.pem
+            SSLCertificateKeyFile /etc/letsencrypt/live/example.com/privkey.pem
+        </VirtualHost>
+    severity: HIGH
+    severity_rationale: >-
+      Clear-text transmission of sensitive information (CWE-319) for every visitor;
+      HTTPS is a baseline requirement (OWASP ASVS V9.1.1).
+    references: ["CWE-319", "OWASP ASVS V9.1.1"]
+
+  header_tls.http_not_redirected:
+    title: Plain HTTP does not redirect to HTTPS
+    explanation: >-
+      http://$host/ answered with status $http_status instead of redirecting to HTTPS.
+      Visitors who type the address or follow an old http:// link stay on an
+      unencrypted connection.
+    remediation: |-
+      Redirect all HTTP traffic to HTTPS with a permanent redirect.
+      nginx:
+        server {
+            listen 80;
+            server_name example.com;
+            return 301 https://$$host$$request_uri;
+        }
+      Apache:
+        <VirtualHost *:80>
+            ServerName example.com
+            Redirect permanent / https://example.com/
+        </VirtualHost>
+    severity: MEDIUM
+    severity_rationale: >-
+      Leaves users on clear-text HTTP (CWE-319) unless they choose HTTPS themselves;
+      mitigated if HSTS is already cached.
+    references: ["CWE-319", "https://infosec.mozilla.org/guidelines/web_security#http-redirections"]
+
+  header_tls.http_redirects:
+    title: Plain HTTP redirects to HTTPS
+    explanation: http://$host/ redirects to $location.
+    remediation: No action needed. Pair the redirect with HSTS so browsers skip HTTP entirely.
+    severity: INFO
+    severity_rationale: Configured as recommended.
+    references: []
+
+  # --- TLS --------------------------------------------------------------------------
+
+  header_tls.tls_ok:
+    title: Valid TLS certificate ($protocol)
+    explanation: >-
+      The certificate for $host is trusted, matches the name and is valid for another
+      $days days. Issuer: $issuer. Negotiated $protocol with $cipher.
+    remediation: Keep automatic renewal working and monitor expiry.
+    severity: INFO
+    severity_rationale: Certificate and protocol meet current guidance (NIST SP 800-52r2).
+    references: ["NIST SP 800-52r2"]
+
+  header_tls.expired:
+    title: TLS certificate has expired
+    explanation: >-
+      The certificate for $host expired on $not_after ($days_ago days ago). Browsers
+      show a full-page warning; users who click through can no longer tell the real
+      site from an impostor.
+    remediation: Renew the certificate now and automate renewal (e.g. certbot renew in a timer).
+    severity: HIGH
+    severity_rationale: >-
+      Use of an expired certificate (CWE-298) breaks authentication of the server and
+      trains users to ignore warnings.
+    references: ["CWE-298"]
+
+  header_tls.not_yet_valid:
+    title: TLS certificate is not valid yet
+    explanation: The certificate for $host only becomes valid on $not_before. Check the server clock and the certificate.
+    remediation: Install a currently valid certificate and check NTP on the server.
+    severity: HIGH
+    severity_rationale: Clients reject the certificate (CWE-298).
+    references: ["CWE-298"]
+
+  header_tls.expiring_soon:
+    title: TLS certificate expires in $days days
+    explanation: The certificate for $host expires on $not_after.
+    remediation: Renew now and make sure automatic renewal is in place.
+    severity: LOW
+    severity_rationale: Imminent outage risk rather than a current weakness; MEDIUM under 14 days.
+    references: []
+
+  header_tls.self_signed:
+    title: Self-signed TLS certificate
+    explanation: >-
+      The certificate for $host is signed by itself, not by a trusted certificate
+      authority. Browsers warn every visitor, and an attacker can present their own
+      self-signed certificate without anyone noticing the difference.
+    remediation: >-
+      Use a certificate from a public CA (Let's Encrypt is free), or for internal
+      services, from your organisation's internal CA distributed to clients.
+    severity: HIGH
+    severity_rationale: >-
+      Improper certificate validation becomes the norm for users (CWE-295); the
+      connection is open to interception.
+    references: ["CWE-295"]
+
+  header_tls.untrusted:
+    title: TLS certificate chain is not trusted
+    explanation: >-
+      The certificate could not be verified: $message. Often the server does not send
+      the intermediate certificate, so only some clients can build the chain.
+    remediation: |-
+      Serve the full chain (certificate + intermediates).
+      nginx:  ssl_certificate /path/fullchain.pem;
+      Apache: SSLCertificateFile /path/fullchain.pem
+    severity: HIGH
+    severity_rationale: Clients that cannot verify the chain must fail or ignore validation (CWE-295).
+    references: ["CWE-295"]
+
+  header_tls.hostname_mismatch:
+    title: TLS certificate does not match $host
+    explanation: >-
+      The certificate is for $names, not for $host. Browsers reject it, and users
+      who click through cannot tell this server from an attacker's.
+    remediation: Issue a certificate whose Subject Alternative Names include $host.
+    severity: HIGH
+    severity_rationale: Improper hostname verification (CWE-297) defeats server authentication.
+    references: ["CWE-297"]
+
+  header_tls.legacy_protocols:
+    title: Server accepts TLS 1.0 / 1.1
+    explanation: >-
+      The server still negotiates TLS 1.0 or 1.1, which RFC 8996 formally deprecated.
+      They rely on weak constructions (CBC in TLS 1.0, SHA-1/MD5 handshake hashes) and
+      enable downgrade attacks.
+    remediation: |-
+      Allow only TLS 1.2 and 1.3.
+      nginx:  ssl_protocols TLSv1.2 TLSv1.3;
+      Apache: SSLProtocol -all +TLSv1.2 +TLSv1.3
+    severity: MEDIUM
+    severity_rationale: >-
+      Deprecated protocol versions (RFC 8996, NIST SP 800-52r2); exploitation needs an
+      active network attacker and an old client.
+    references: ["RFC 8996", "NIST SP 800-52r2", "CWE-327"]
+
+  header_tls.weak_key:
+    title: Weak certificate key ($key_type $key_bits bits)
+    explanation: The certificate uses a $key_type key of $key_bits bits, below the 2048-bit minimum.
+    remediation: Re-issue the certificate with an RSA 2048+ or ECDSA P-256 key.
+    severity: MEDIUM
+    severity_rationale: Inadequate key strength (CWE-326; NIST SP 800-57 minimum 2048-bit RSA).
+    references: ["CWE-326", "NIST SP 800-57"]
+
+  header_tls.sha1_signature:
+    title: Certificate signed with SHA-1
+    explanation: SHA-1 signatures are forgeable in practice (SHAttered) and rejected by modern browsers.
+    remediation: Re-issue the certificate with a SHA-256 signature.
+    severity: MEDIUM
+    severity_rationale: Use of a broken hash (CWE-328).
+    references: ["CWE-328"]
+
+  # --- headers ------------------------------------------------------------------------
+
+  header_tls.hsts_missing:
+    title: Strict-Transport-Security (HSTS) is missing
+    explanation: >-
+      Without HSTS, a browser will happily load http://$host first, which an attacker
+      on the network (public Wi-Fi) can intercept and keep on HTTP ("SSL stripping").
+    remediation: |-
+      Send HSTS on every HTTPS response (start with a short max-age, then raise it).
+      nginx:  add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+      Apache: Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains"
+    severity: MEDIUM
+    severity_rationale: >-
+      Permits downgrade / SSL-stripping on first visit (RFC 6797; OWASP Secure Headers
+      Project). Requires an active network attacker.
+    references: ["RFC 6797", "https://owasp.org/www-project-secure-headers/", "CWE-319"]
+
+  header_tls.hsts_weak:
+    title: HSTS is set but weak
+    explanation: "HSTS is present ($value) but $issues."
+    remediation: |-
+      Use at least six months, ideally a year, and cover subdomains once they all support HTTPS:
+      Strict-Transport-Security: max-age=31536000; includeSubDomains
+    severity: LOW
+    severity_rationale: Partial protection; the gap is short-lived or limited to subdomains (RFC 6797).
+    references: ["RFC 6797"]
+
+  header_tls.hsts_ok:
+    title: HSTS is enabled
+    explanation: "Strict-Transport-Security: $value"
+    remediation: No action needed.$preload_note
+    severity: INFO
+    severity_rationale: Configured as recommended (RFC 6797).
+    references: ["RFC 6797"]
+
+  header_tls.csp_missing:
+    title: Content-Security-Policy is missing
+    explanation: >-
+      A CSP tells the browser which scripts, styles and frames the page may load. Without
+      one, any injected script (an XSS bug) runs with the full power of the page.
+    remediation: |-
+      Start strict and loosen as needed; deploy first as Content-Security-Policy-Report-Only.
+      nginx:  add_header Content-Security-Policy "default-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'" always;
+      Apache: Header always set Content-Security-Policy "default-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+    severity: MEDIUM
+    severity_rationale: >-
+      Missing defence-in-depth against XSS (CWE-693, CWE-79); severity reflects that CSP
+      mitigates rather than causes vulnerabilities (OWASP Secure Headers Project).
+    references: ["https://owasp.org/www-project-secure-headers/", "CWE-693"]
+
+  header_tls.csp_report_only:
+    title: CSP is in report-only mode
+    explanation: >-
+      Only Content-Security-Policy-Report-Only is sent: violations are reported but
+      nothing is blocked.
+    remediation: Once reports are clean, send the same policy as Content-Security-Policy.
+    severity: LOW
+    severity_rationale: Monitoring without enforcement (CWE-693).
+    references: ["CWE-693"]
+
+  header_tls.csp_weak:
+    title: Content-Security-Policy has weaknesses
+    explanation: "The policy is enforced, but $issues. Policy: $value"
+    remediation: >-
+      Replace 'unsafe-inline' with nonces or hashes ('nonce-…', 'sha256-…'), avoid
+      'unsafe-eval', and list explicit origins instead of wildcards.
+    severity: MEDIUM
+    severity_rationale: >-
+      'unsafe-inline' or wildcard script sources let injected scripts run, which
+      largely negates the XSS protection (CWE-693).
+    references: ["https://csp-evaluator.withgoogle.com/", "CWE-693"]
+
+  header_tls.csp_ok:
+    title: Content-Security-Policy is enforced
+    explanation: "Policy: $value"
+    remediation: No action needed. Review the policy when adding new third-party scripts.
+    severity: INFO
+    severity_rationale: Configured as recommended.
+    references: []
+
+  header_tls.clickjacking_missing:
+    title: No clickjacking protection
+    explanation: >-
+      Neither X-Frame-Options nor CSP frame-ancestors is set, so any site can embed
+      this page in an invisible frame and trick users into clicking its buttons.
+    remediation: |-
+      nginx:  add_header X-Frame-Options "DENY" always;   (or CSP: frame-ancestors 'none')
+      Apache: Header always set X-Frame-Options "DENY"
+    severity: MEDIUM
+    severity_rationale: Improper restriction of rendered UI layers (CWE-1021).
+    references: ["CWE-1021", "https://owasp.org/www-community/attacks/Clickjacking"]
+
+  header_tls.clickjacking_ok:
+    title: Clickjacking protection is set
+    explanation: "Framing is restricted by $mechanism."
+    remediation: No action needed.
+    severity: INFO
+    severity_rationale: Configured as recommended (CWE-1021 mitigated).
+    references: []
+
+  header_tls.xcto_missing:
+    title: X-Content-Type-Options is missing
+    explanation: >-
+      Without "nosniff", browsers may guess a response's type and execute an uploaded
+      text file as script (MIME sniffing).
+    remediation: |-
+      nginx:  add_header X-Content-Type-Options "nosniff" always;
+      Apache: Header always set X-Content-Type-Options "nosniff"
+    severity: LOW
+    severity_rationale: Defence-in-depth header; exploitation needs an upload or injection flaw (CWE-693).
+    references: ["https://owasp.org/www-project-secure-headers/"]
+
+  header_tls.xcto_ok:
+    title: X-Content-Type-Options is nosniff
+    explanation: Browsers will not guess content types.
+    remediation: No action needed.
+    severity: INFO
+    severity_rationale: Configured as recommended.
+    references: []
+
+  header_tls.referrer_missing:
+    title: Referrer-Policy is missing
+    explanation: >-
+      Without a policy, older browsers send the full URL (including paths and query
+      strings, which may contain tokens) to other sites when users follow links.
+    remediation: |-
+      nginx:  add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+      Apache: Header always set Referrer-Policy "strict-origin-when-cross-origin"
+    severity: LOW
+    severity_rationale: Possible information leak via the Referer header (CWE-200); modern browsers default to a safer policy.
+    references: ["CWE-200"]
+
+  header_tls.referrer_unsafe:
+    title: Referrer-Policy leaks full URLs
+    explanation: "Referrer-Policy: $value sends full URLs, even from HTTPS to HTTP."
+    remediation: Use strict-origin-when-cross-origin or no-referrer.
+    severity: LOW
+    severity_rationale: Information leak via the Referer header (CWE-200).
+    references: ["CWE-200"]
+
+  header_tls.referrer_ok:
+    title: Referrer-Policy is set
+    explanation: "Referrer-Policy: $value"
+    remediation: No action needed.
+    severity: INFO
+    severity_rationale: Configured as recommended.
+    references: []
+
+  header_tls.permissions_missing:
+    title: Permissions-Policy is missing
+    explanation: >-
+      Permissions-Policy limits which browser features (camera, microphone,
+      geolocation…) the page and its embedded frames may use.
+    remediation: |-
+      nginx:  add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
+      Apache: Header always set Permissions-Policy "camera=(), microphone=(), geolocation=()"
+    severity: LOW
+    severity_rationale: Hardening header; its absence only matters if a frame or script is compromised.
+    references: ["https://owasp.org/www-project-secure-headers/"]
+
+  header_tls.permissions_ok:
+    title: Permissions-Policy is set
+    explanation: "Permissions-Policy: $value"
+    remediation: No action needed.
+    severity: INFO
+    severity_rationale: Configured as recommended.
+    references: []
+
+  header_tls.disclosure:
+    title: Response headers reveal software versions
+    explanation: >-
+      $headers. Version details let attackers look up known vulnerabilities for exactly
+      this software without probing.
+    remediation: |-
+      Hide versions.
+      nginx:  server_tokens off;   (and remove X-Powered-By in the application)
+      Apache: ServerTokens Prod
+              ServerSignature Off
+      PHP:    expose_php = Off
+    severity: LOW
+    severity_rationale: Information exposure (CWE-200) that aids, but does not enable, an attack.
+    references: ["CWE-200"]
+
+  # --- cookies ---------------------------------------------------------------------------
+
+  header_tls.cookie_not_secure:
+    title: Cookies without the Secure flag
+    explanation: >-
+      $names may be sent over plain HTTP, where anyone on the network can read them.
+      (Cookie values were not stored by Sentinel.)
+    remediation: |-
+      Set Secure on every cookie of an HTTPS site.
+      nginx (proxy):  proxy_cookie_flags ~ secure;
+      Apache:         Header always edit Set-Cookie (.*) "$$1; Secure"
+      Better: set the flags in the application's session configuration.
+    severity: MEDIUM
+    severity_rationale: Sensitive cookie without Secure (CWE-614).
+    references: ["CWE-614"]
+
+  header_tls.cookie_not_httponly:
+    title: Cookies readable by JavaScript (no HttpOnly)
+    explanation: >-
+      $names can be read by scripts on the page, so an XSS bug can steal them.
+      Session-like cookies: $session_names.
+    remediation: |-
+      Set HttpOnly on every cookie that scripts do not need (always on session cookies).
+      nginx (proxy):  proxy_cookie_flags ~ httponly;
+      Apache:         Header always edit Set-Cookie (.*) "$$1; HttpOnly"
+    severity: LOW
+    severity_rationale: >-
+      Sensitive cookie without HttpOnly (CWE-1004). Raised to MEDIUM when a cookie looks
+      like a session identifier.
+    references: ["CWE-1004"]
+
+  header_tls.cookie_no_samesite:
+    title: Cookies without a SameSite attribute
+    explanation: >-
+      $names do not declare SameSite. Modern browsers default to Lax, older ones send
+      them on cross-site requests, which enables CSRF.
+    remediation: Set SameSite=Lax (or Strict for session cookies that never need cross-site use).
+    severity: LOW
+    severity_rationale: Relies on browser defaults for CSRF protection (CWE-1275).
+    references: ["CWE-1275"]
+
+  header_tls.cookie_samesite_none_insecure:
+    title: SameSite=None cookies without Secure
+    explanation: $names use SameSite=None without Secure; browsers reject or downgrade such cookies.
+    remediation: SameSite=None must always be combined with Secure.
+    severity: MEDIUM
+    severity_rationale: Cross-site cookie sent over clear text (CWE-614, CWE-1275).
+    references: ["CWE-614", "CWE-1275"]
+
+  header_tls.cookies_ok:
+    title: Cookies use Secure, HttpOnly and SameSite
+    explanation: "$count cookie(s) checked: $names."
+    remediation: No action needed.
+    severity: INFO
+    severity_rationale: Configured as recommended.
+    references: []

@@ -4,33 +4,48 @@ Run with ``uvicorn app.main:create_app --factory``. A factory (instead of a
 module-level ``app``) lets tests build isolated instances with their own settings.
 """
 
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app import __version__
 from app.api.health import router as health_router
+from app.api.v1 import router as v1_router
 from app.config import get_settings
+from app.core.errors import install_exception_handlers
+from app.core.http import RequestContextMiddleware, SecurityHeadersMiddleware
+from app.core.logging import configure_logging, get_logger
+from app.core.ratelimit import close_rate_limiter
+from app.core.realtime.ws import router as ws_router
+from app.core.runs.events import close_redis
+from app.db.session import dispose_engine
+from app.engine.knowledge import get_knowledge_base
+from app.engine.registry import registry
 
-# The interactive docs load scripts and styles that the strict CSP below would
-# block. They are only served outside production (see create_app).
-_DOCS_PATHS = frozenset({"/docs", "/openapi.json"})
+logger = get_logger("sentinel.app")
 
-# Sentinel should pass its own header checker (04-security.md section 9).
-_SECURITY_HEADERS = {
-    "X-Content-Type-Options": "nosniff",
-    "X-Frame-Options": "DENY",
-    "Referrer-Policy": "no-referrer",
-    "Cross-Origin-Resource-Policy": "same-origin",
-}
-# The API only returns JSON, so the page-level CSP can deny everything.
-_API_CSP = "default-src 'none'; frame-ancestors 'none'"
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    logger.info("app.startup", tools=len(registry))
+    yield
+    await close_rate_limiter()
+    await close_redis()
+    await dispose_engine()
+    logger.info("app.shutdown")
 
 
 def create_app() -> FastAPI:
     settings = get_settings()
+    configure_logging(settings, service="api")
     is_production = settings.environment == "production"
+
+    # Fail fast: a broken tool or knowledge file stops startup instead of
+    # surfacing later as a confusing run-time error.
+    registry.discover()
+    get_knowledge_base()
 
     app = FastAPI(
         title="Sentinel API",
@@ -38,28 +53,26 @@ def create_app() -> FastAPI:
         docs_url=None if is_production else "/docs",
         redoc_url=None,
         openapi_url=None if is_production else "/openapi.json",
+        lifespan=lifespan,
     )
+    install_exception_handlers(app)
 
+    # Middleware added last runs first (outermost). Request flow:
+    # SecurityHeaders -> RequestContext -> CORS -> routes. The request context
+    # wraps CORS, so even rejected preflights are logged with a request ID, and
+    # the security headers wrap everything, including the last-resort 500.
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
         allow_headers=["Content-Type", "X-Request-ID", "X-CSRF-Token"],
+        expose_headers=["X-Request-ID"],
     )
-
-    @app.middleware("http")
-    async def security_headers(
-        request: Request, call_next: Callable[[Request], Awaitable[Response]]
-    ) -> Response:
-        response = await call_next(request)
-        response.headers.update(_SECURITY_HEADERS)
-        if request.url.path not in _DOCS_PATHS:
-            response.headers["Content-Security-Policy"] = _API_CSP
-        if is_production:
-            # Only meaningful once TLS terminates in front of the API (prod profile).
-            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
-        return response
+    app.add_middleware(RequestContextMiddleware, trusted_proxies=settings.trusted_proxy_networks)
+    app.add_middleware(SecurityHeadersMiddleware, hsts=is_production)
 
     app.include_router(health_router)
+    app.include_router(v1_router)
+    app.include_router(ws_router)
     return app

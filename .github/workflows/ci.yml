@@ -27,7 +27,7 @@ jobs:
       - name: ruff
         run: docker run --rm sentinel-backend:ci sh -c "ruff check . && ruff format --check ."
       - name: mypy
-        run: docker run --rm sentinel-backend:ci mypy app tests
+        run: docker run --rm sentinel-backend:ci mypy app tests alembic
       - name: bandit
         run: docker run --rm sentinel-backend:ci bandit -r app -ll -c pyproject.toml
       - name: pip-audit
@@ -89,6 +89,7 @@ jobs:
               -e "s/^REDIS_PASSWORD=CHANGE_ME/REDIS_PASSWORD=$(gen)/" \
               -e "s/^VITE_USE_POLLING=.*/VITE_USE_POLLING=false/" \
               -e "s/^WATCHFILES_FORCE_POLLING=.*/WATCHFILES_FORCE_POLLING=false/" \
+              -e "s/^LOG_FORMAT=.*/LOG_FORMAT=json/" \
               .env.example > .env
       - name: Start stack
         run: docker compose up --build -d --wait --wait-timeout 300
@@ -99,6 +100,58 @@ jobs:
           curl -fsS http://127.0.0.1:5173/health
           docker compose exec -T worker python -c \
             "from app.core.tasks.celery_app import ping; assert ping.delay().get(timeout=15) == 'pong'"
+      - name: Migrations round-trip with no schema drift
+        run: |
+          docker compose run --rm -T migrate \
+            sh -c "alembic downgrade base && alembic upgrade head && alembic check"
+      - name: App role cannot change the schema
+        run: |
+          docker compose exec -T api python -c "
+          import asyncio
+          from sqlalchemy import text
+          from app.db.session import get_engine
+          async def main():
+              async with get_engine().connect() as conn:
+                  try:
+                      await conn.execute(text('CREATE TABLE ci_should_fail (id int)'))
+                  except Exception:
+                      return
+                  raise SystemExit('sentinel_app was able to run DDL')
+          asyncio.run(main())"
+      - name: Integration tests (real Postgres and Redis, separate test database)
+        run: docker compose --profile test run --rm -T test pytest tests/integration -p no:warnings
+      - name: Create first admin via CLI, log in, read the catalogue
+        run: |
+          echo "secure-pass-$(python3 -c 'import secrets; print(secrets.token_hex(8))')" > /tmp/pw
+          docker compose exec -T api python -m app.cli create-admin --username ci-admin --password-stdin < /tmp/pw
+          code=$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/api/v1/tools)
+          test "$code" = 401 || { echo "catalogue without a session returned $code"; exit 1; }
+          python3 - <<'EOF'
+          import http.cookiejar, json, urllib.request
+          password = open("/tmp/pw").read().strip()
+          jar = http.cookiejar.CookieJar()
+          opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+          request = urllib.request.Request(
+              "http://127.0.0.1:8000/api/v1/auth/login",
+              data=json.dumps({"username": "ci-admin", "password": password}).encode(),
+              headers={"Content-Type": "application/json"},
+          )
+          with opener.open(request, timeout=10) as response:
+              assert response.status == 200, response.status
+              cookies = response.headers.get_all("Set-Cookie")
+          assert any(c.startswith("__Host-sentinel_access=") and "HttpOnly" in c for c in cookies)
+          print("login OK")
+          EOF
+      - name: API and worker logs are JSON with request_id on every line
+        run: |
+          curl -sS -o /dev/null -H "X-Request-ID: ci-check-001" http://127.0.0.1:8000/api/v1/tools
+          docker compose logs --no-log-prefix api worker | python3 -c "
+          import json, sys
+          lines = [json.loads(l) for l in sys.stdin if l.strip()]
+          assert lines, 'no log lines'
+          assert all('request_id' in l for l in lines), 'line without request_id'
+          assert any(l.get('request_id') == 'ci-check-001' for l in lines), 'request id missing'
+          print(len(lines), 'JSON lines OK')"
       - name: Postgres and Redis must not be reachable from the host
         run: |
           for port in 5432 6379; do

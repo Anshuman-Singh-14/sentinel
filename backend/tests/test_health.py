@@ -1,22 +1,15 @@
-from collections.abc import Iterator
-
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.ext.asyncio import AsyncEngine
 
 from app import __version__
 from app.api import health
 from app.config import Settings
-from app.main import create_app
-
-
-@pytest.fixture
-def client() -> Iterator[TestClient]:
-    with TestClient(create_app()) as test_client:
-        yield test_client
+from app.db.session import create_engine
 
 
 def _stub_checks(monkeypatch: pytest.MonkeyPatch, *, postgres: bool, redis: bool) -> None:
-    async def fake_postgres(settings: Settings) -> bool:
+    async def fake_postgres(engine: AsyncEngine, limit_seconds: float) -> bool:
         return postgres
 
     async def fake_redis(settings: Settings) -> bool:
@@ -69,7 +62,11 @@ async def test_real_checks_fail_closed_on_unreachable_services() -> None:
         readiness_timeout_seconds=0.5,
     )
 
-    assert await health.check_postgres(settings) is False
+    engine = create_engine(settings)
+    try:
+        assert await health.check_postgres(engine, limit_seconds=0.5) is False
+    finally:
+        await engine.dispose()
     assert await health.check_redis(settings) is False
 
 

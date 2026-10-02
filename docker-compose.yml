@@ -18,12 +18,40 @@ x-app-hardening: &app-hardening
     - ALL
   restart: unless-stopped
 
-x-backend-env: &backend-env
+x-logging-env: &logging-env
   ENVIRONMENT: ${ENVIRONMENT:-development}
   LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  # Empty = auto: pretty console in development, JSON elsewhere.
+  LOG_FORMAT: ${LOG_FORMAT:-}
+
+x-backend-env: &backend-env
+  <<: *logging-env
+  TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
   CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
   DATABASE_URL: postgresql://sentinel_app:${SENTINEL_DB_APP_PASSWORD:?set in .env}@postgres:5432/${POSTGRES_DB:-sentinel}
   REDIS_URL: redis://:${REDIS_PASSWORD:?set in .env}@redis:6379/0
+  # Authentication (ADR 0003). Defaults match app/config.py.
+  COOKIE_SECURE: ${COOKIE_SECURE:-true}
+  ACCESS_TOKEN_TTL_MINUTES: ${ACCESS_TOKEN_TTL_MINUTES:-15}
+  REFRESH_TOKEN_IDLE_HOURS: ${REFRESH_TOKEN_IDLE_HOURS:-12}
+  SESSION_ABSOLUTE_HOURS: ${SESSION_ABSOLUTE_HOURS:-24}
+  LOGIN_MAX_FAILURES: ${LOGIN_MAX_FAILURES:-5}
+  LOCKOUT_BASE_SECONDS: ${LOCKOUT_BASE_SECONDS:-60}
+  LOCKOUT_MAX_SECONDS: ${LOCKOUT_MAX_SECONDS:-900}
+  AUTH_RATE_LIMIT_PER_MINUTE: ${AUTH_RATE_LIMIT_PER_MINUTE:-10}
+  ALERT_FAILED_LOGIN_THRESHOLD: ${ALERT_FAILED_LOGIN_THRESHOLD:-5}
+  ALERT_WINDOW_MINUTES: ${ALERT_WINDOW_MINUTES:-10}
+  # Tool runs and the DNS tool (Phase 5). Defaults match app/config.py.
+  RUN_RATE_LIMIT_PER_MINUTE: ${RUN_RATE_LIMIT_PER_MINUTE:-20}
+  MAX_ACTIVE_RUNS_PER_USER: ${MAX_ACTIVE_RUNS_PER_USER:-3}
+  DNS_NAMESERVERS: ${DNS_NAMESERVERS-1.1.1.1,9.9.9.9}
+  # Scope policy (Phase 6). Infra subnets are always denied; the default allow
+  # list is loopback plus the lab network. See docs/adr/0007-scope-policy.md.
+  SCOPE_INFRA_SUBNETS: ${SENTINEL_INTERNAL_SUBNET:-10.231.0.0/24},${SENTINEL_EDGE_SUBNET:-10.231.1.0/24},${SENTINEL_EGRESS_SUBNET:-10.231.2.0/24}
+  SCOPE_DEFAULT_ALLOW: 127.0.0.0/8,::1/128,${SENTINEL_LAB_SUBNET:-10.231.10.0/24}
+  PORT_SCAN_MAX_PORTS: ${PORT_SCAN_MAX_PORTS:-1024}
+  NVD_API_KEY: ${NVD_API_KEY:-}
+  WEB_CHECK_ALLOWED_PORTS: ${WEB_CHECK_ALLOWED_PORTS:-80,443,8000,8008,8080,8443,8888}
 
 services:
   postgres:
@@ -68,13 +96,36 @@ services:
       timeout: 3s
       retries: 20
 
+  # One-shot: applies Alembic migrations, then exits. It is the only container
+  # that receives the schema-owner credential; api and worker connect as the
+  # least-privilege sentinel_app role and start only after this succeeds.
+  migrate:
+    <<: *app-hardening
+    restart: "no"
+    build:
+      context: ./backend
+      target: dev
+    image: sentinel-backend:dev
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      <<: *logging-env
+      MIGRATION_DATABASE_URL: postgresql://sentinel_owner:${SENTINEL_DB_OWNER_PASSWORD:?set in .env}@postgres:5432/${POSTGRES_DB:-sentinel}
+    volumes:
+      - ./backend:/app
+    networks: [internal]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   api:
     <<: *app-hardening
     build:
       context: ./backend
       target: dev
     image: sentinel-backend:dev
-    command: ["uvicorn", "app.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    # --no-access-log: our middleware writes the access log with route templates.
+    # --no-proxy-headers: client-IP trust is decided once, by TRUSTED_PROXIES.
+    command: ["uvicorn", "app.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--reload", "--no-access-log", "--no-proxy-headers", "--log-config", "uvicorn-logging.json"]
     environment:
       <<: *backend-env
       WATCHFILES_FORCE_POLLING: ${WATCHFILES_FORCE_POLLING:-false}
@@ -84,8 +135,8 @@ services:
       - "127.0.0.1:${API_PORT:-8000}:8000"
     networks: [internal, edge]
     depends_on:
-      postgres:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
     healthcheck:
@@ -101,15 +152,21 @@ services:
       context: ./backend
       target: dev
     image: sentinel-backend:dev
-    command: ["celery", "-A", "app.core.tasks.celery_app:celery_app", "worker", "--loglevel=INFO", "--queues=default,scans,intel", "--concurrency=2"]
+    # --quiet suppresses the startup banner, which is printed straight to stdout
+    # and would break the one-JSON-object-per-line log contract.
+    command: ["celery", "-A", "app.core.tasks.celery_app:celery_app", "--quiet", "worker", "--loglevel=INFO", "--queues=default,scans,intel", "--concurrency=2"]
     environment:
       <<: *backend-env
     volumes:
       - ./backend:/app
-    # Phase 0: no internet egress. Phases 5+ attach the networks that active
-    # tools need (see docs/threat-model.md, the infra denylist and lab network).
-    networks: [internal]
+    # `egress` gives the worker outbound internet access for tools (DNS from
+    # Phase 5). It is a separate network so the API and data stores stay
+    # without egress. Active tools are additionally gated by the scope policy
+    # and infra denylist (Phase 6, docs/threat-model.md T10).
+    networks: [internal, egress, lab]
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
       api:
@@ -120,6 +177,37 @@ services:
       timeout: 15s
       retries: 5
       start_period: 20s
+
+  # Integration tests against real Postgres and Redis (profile "test", never
+  # started by a plain `docker compose up`):
+  #   docker compose --profile test run --rm test
+  # Uses the separate `sentinel_test` database (infra/postgres/init/02-test-db.sh)
+  # and Redis DB 15, so it never touches dev data. It receives the owner
+  # credential because the audit tests must bypass the append-only trigger
+  # to prove that tampering is detected.
+  test:
+    <<: *app-hardening
+    restart: "no"
+    profiles: [test]
+    build:
+      context: ./backend
+      target: dev
+    image: sentinel-backend:dev
+    command: ["pytest"]
+    environment:
+      <<: *logging-env
+      ENVIRONMENT: test
+      TEST_DATABASE_URL: postgresql://sentinel_app:${SENTINEL_DB_APP_PASSWORD:?set in .env}@postgres:5432/sentinel_test
+      TEST_OWNER_DATABASE_URL: postgresql://sentinel_owner:${SENTINEL_DB_OWNER_PASSWORD:?set in .env}@postgres:5432/sentinel_test
+      TEST_REDIS_URL: redis://:${REDIS_PASSWORD:?set in .env}@redis:6379/15
+    volumes:
+      - ./backend:/app
+    networks: [internal]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
   frontend:
     <<: *app-hardening
@@ -148,10 +236,97 @@ services:
       retries: 10
       start_period: 15s
 
+  # --- Lab targets (profile "lab"): docker compose --profile lab up -d -------
+  # Deliberately simple services for the port scanner to find. Reachable only
+  # from the worker over the internal `lab` network; no host ports.
+  lab-web:
+    profiles: [lab]
+    image: nginxinc/nginx-unprivileged:1.29-alpine
+    networks:
+      lab:
+        ipv4_address: ${SENTINEL_LAB_WEB_IP:-10.231.10.10}
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    restart: unless-stopped
+
+  # Pretends to be outdated FTP/SSH/Telnet/SMTP/MySQL servers by sending their
+  # greeting banners. No real (or vulnerable) software runs: it is a teaching
+  # target for banner grabbing and CVE matching. See infra/lab/banner_server.py.
+  lab-banners:
+    profiles: [lab]
+    build:
+      context: ./infra/lab
+    image: sentinel-lab-banners:dev
+    # Lets the unprivileged process bind ports below 1024 without any capability.
+    sysctls:
+      net.ipv4.ip_unprivileged_port_start: 0
+    networks:
+      lab:
+        ipv4_address: ${SENTINEL_LAB_BANNERS_IP:-10.231.10.11}
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    read_only: true
+    restart: unless-stopped
+
+  # HTTPS target for the header/TLS checker: good security headers, an
+  # HTTP->HTTPS redirect, and a self-signed certificate (a HIGH finding).
+  lab-https:
+    profiles: [lab]
+    build:
+      context: ./infra/lab/https
+    image: sentinel-lab-https:dev
+    networks:
+      lab:
+        ipv4_address: ${SENTINEL_LAB_HTTPS_IP:-10.231.10.13}
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    restart: unless-stopped
+
+  # A real Redis with no password: the classic "exposed database" finding.
+  lab-redis:
+    profiles: [lab]
+    image: redis:7.4-alpine
+    # Run as the image's redis user directly: the stock entrypoint's user
+    # switch would need capabilities that are dropped here.
+    user: redis
+    command: ["redis-server", "--protected-mode", "no", "--save", "", "--appendonly", "no"]
+    networks:
+      lab:
+        ipv4_address: ${SENTINEL_LAB_REDIS_IP:-10.231.10.12}
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    restart: unless-stopped
+
+# Subnets are pinned so the scope guard can deny Sentinel's own infrastructure
+# by address (threat model T10). If they clash with another network on your
+# machine, override the SENTINEL_*_SUBNET variables in .env: the same values
+# are passed to the backend as SCOPE_INFRA_SUBNETS / SCOPE_DEFAULT_ALLOW.
 networks:
   internal:
     internal: true
-  edge: {}
+    ipam:
+      config:
+        - subnet: ${SENTINEL_INTERNAL_SUBNET:-10.231.0.0/24}
+  edge:
+    ipam:
+      config:
+        - subnet: ${SENTINEL_EDGE_SUBNET:-10.231.1.0/24}
+  # Outbound-only network for the worker (nothing publishes ports on it).
+  egress:
+    ipam:
+      config:
+        - subnet: ${SENTINEL_EGRESS_SUBNET:-10.231.2.0/24}
+  # Scan targets for the `lab` profile. Internal: lab containers cannot reach
+  # the internet, and only the worker joins them here.
+  lab:
+    internal: true
+    ipam:
+      config:
+        - subnet: ${SENTINEL_LAB_SUBNET:-10.231.10.0/24}
 
 volumes:
   pgdata:

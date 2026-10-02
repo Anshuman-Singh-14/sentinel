@@ -15,10 +15,20 @@ updates:
     directories: ["/backend", "/frontend"]
     schedule:
       interval: weekly
+    # Major image versions (Postgres, Redis, Node, Python) are fixed by ADR 0001 and
+    # change data layouts or runtimes; bump them deliberately, not via a bot PR.
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: docker-compose
     directory: /
     schedule:
       interval: weekly
+    # Major image versions (Postgres, Redis, Node, Python) are fixed by ADR 0001 and
+    # change data layouts or runtimes; bump them deliberately, not via a bot PR.
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
