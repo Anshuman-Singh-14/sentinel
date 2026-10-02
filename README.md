@@ -8,7 +8,7 @@ remediation.
 > Sentinel is for defensive and educational use only. Run active tools only
 > against systems you own or have written permission to test.
 
-**Status:** Phase 0 (foundation). See [`docs/PROGRESS.md`](docs/PROGRESS.md).
+**Status:** Phase 1 (core backend framework & logging). See [`docs/PROGRESS.md`](docs/PROGRESS.md).
 
 ## Quick start
 
@@ -22,12 +22,17 @@ docker compose up --build
 - Frontend: http://localhost:5173
 - API health: http://localhost:8000/health · readiness: http://localhost:8000/ready
 - API docs (non-production only): http://localhost:8000/docs
+- Tool catalogue: http://localhost:8000/api/v1/tools
+
+`docker compose up` runs database migrations first (the one-shot `migrate`
+service), then starts the API and worker.
 
 ## Development
 
 ```bash
 docker compose run --rm api pytest                       # backend tests
 docker compose run --rm api sh -c "ruff check . && mypy app tests && bandit -r app -ll -c pyproject.toml"
+docker compose run --rm migrate alembic upgrade head     # apply migrations manually
 docker compose exec frontend npm run test                # frontend tests
 docker compose exec frontend npm run lint
 pre-commit install                                       # git hooks (needs frontend/node_modules: cd frontend && npm ci)

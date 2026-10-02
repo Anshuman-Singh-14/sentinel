@@ -1,6 +1,7 @@
 """Guards for security-relevant Celery settings (CLAUDE.md rules 1 and 7)."""
 
-from app.core.tasks.celery_app import QUEUES, celery_app, ping
+from app.core.tasks.celery_app import celery_app, ping
+from app.core.tasks.queues import QUEUES
 
 
 def test_only_json_is_accepted() -> None:

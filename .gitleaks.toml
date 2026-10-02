@@ -1,0 +1,12 @@
+# gitleaks configuration: the default rules, plus one narrowly scoped allowlist.
+#
+# tests/security/test_redaction.py deliberately contains *fake* secrets (JWTs,
+# keys, a PEM block) to prove the log redaction processor masks them. Only that
+# single file is exempt. A real secret anywhere else still fails the scan.
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Fake secrets used by the redaction security tests"
+paths = ['''^backend/tests/security/test_redaction\.py$''']

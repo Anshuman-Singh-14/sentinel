@@ -54,9 +54,13 @@ Sentinel is an educational and defensive platform. It does not replace professio
 ## Commands (keep this section updated as the project grows)
 
 ```bash
-docker compose up --build            # full stack
-docker compose run --rm api pytest   # backend tests
-docker compose run --rm api alembic upgrade head
-cd frontend && npm run test          # frontend tests
-cd frontend && npm run lint
+docker compose up --build                       # full stack (runs migrations first)
+docker compose run --rm api pytest              # backend tests
+docker compose run --rm api sh -c "ruff check . && mypy app tests alembic && bandit -r app -ll -c pyproject.toml"
+docker compose run --rm migrate alembic upgrade head                       # apply migrations
+docker compose run --rm migrate alembic revision --autogenerate -m "msg"   # new migration
+docker compose run --rm migrate alembic check                              # models vs DB drift
+docker compose exec frontend npm run test       # frontend tests
+docker compose exec frontend npm run lint
+LOG_FORMAT=json docker compose up -d            # JSON logs locally (default in dev: console)
 ```

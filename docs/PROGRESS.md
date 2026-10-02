@@ -2,8 +2,8 @@
 
 | Phase | Name | Status | Notes |
 |---|---|---|---|
-| 0 | Foundation & tooling | Complete — awaiting CI run | Compose stack healthy; backend/frontend gates green locally |
-| 1 | Core backend & logging | Not started | |
+| 0 | Foundation & tooling | Complete | CI green on main (PR #1) |
+| 1 | Core backend & logging | Complete, awaiting CI on PR | 205 backend tests; JSON logs + redaction; Alembic baseline; echo tool |
 | 2 | Identity, RBAC & audit | Not started | DB roles already split (owner/app) in Phase 0 |
 | 3 | Frontend shell | Not started | |
 | 4 | Client-side utilities | Not started | |
@@ -32,10 +32,30 @@ containers. See `docs/adr/0001-architecture-and-stack.md`.
 
 - Starlette now warns that TestClient on `httpx` is deprecated in favour of
   `httpx2` (pydantic org). Decide before Phase 7, where httpx becomes a runtime dependency.
-- slowapi vs a small Redis token bucket on `limits`: decide in Phase 1/2.
-- UUIDv7 request IDs on Python 3.12: `uuid-utils` or about 15 lines of our own (Phase 1).
+- slowapi vs a small Redis token bucket on `limits`: decide in Phase 2.
+- The access-log route template relies on a FastAPI 0.14x internal (ADR 0002). A test pins it.
+- Dependabot now ignores semver-major image updates (docker, docker-compose). Close the
+  already-open Postgres 18 / Redis 8 / Node 26 PRs on GitHub.
 - LICENSE copyright holder (`Anshuman-Singh-14`) needs confirming by the repo owner.
 - The repo lives in OneDrive. Moving it to a non-synced path is recommended.
+
+## Phase 1 log
+
+- Config split by consumer: `LoggingSettings` / `Settings` (api, worker) / `MigrationSettings` (migrate only).
+- structlog pipeline for every logger; JSON in non-dev; standard + system fields on every line.
+- Redaction processor (keys, patterns, scoped entropy, truncation, traceback tail) with 50+ security tests.
+- Request-ID middleware (UUIDv7, validated incoming IDs, echoed header), route-template access log,
+  trusted-proxy client IP, Celery header propagation.
+- Error hierarchy and handlers; last-resort 500 with request ID; validation errors never echo input.
+- Async SQLAlchemy engine/session; Alembic (async env, baseline 0001); one-shot `migrate` service.
+- Translation Engine core: `ToolResult`/`Finding` schemas, `BaseTool` (metadata validated at
+  definition), registry + discovery + catalogue, in-process runner, CVSS v3.1 severity helpers,
+  YAML knowledge base. Echo tool and `GET /api/v1/tools`.
+- CI: migration round trip + `alembic check`, app-role DDL denial, JSON-log check for api and worker.
+- Docs: ADR 0002, threat model T15 and T18–T23.
+- Local acceptance re-run (2026-10-01): 205 tests pass; ruff, mypy, bandit clean; migration
+  upgrade → downgrade → upgrade + `alembic check` clean; JSON logs carry `request_id` on every line;
+  `GET /api/v1/tools` lists `echo`. Remaining: green CI on the PR, then merge to `main`.
 
 ## Phase 0 log
 
