@@ -256,6 +256,9 @@ def test_logout_requires_csrf(
     login(client, "alice")
     assert client.post("/api/v1/auth/logout").status_code == 403
     assert db.audit("auth.logout") == []
+    (denied,) = db.audit("auth.access.denied")
+    assert denied["reason"] == "csrf_token_missing"
+    assert denied["username"] == "alice"
 
 
 def test_state_change_without_csrf_token_is_denied_and_audited(
