@@ -1,6 +1,6 @@
 # Sentinel — Threat model
 
-STRIDE-style and updated every phase. **Last updated:** Phase 1 (2026-10-01).
+STRIDE-style and updated every phase. **Last updated:** Phase 2 (2026-10-02).
 
 ## 1. System overview
 
@@ -18,8 +18,8 @@ Networks: `edge` (frontend, api) and `internal` (api, worker, postgres, redis;
 
 | Asset | Why it matters |
 |---|---|
-| User credentials and sessions (Phase 2) | Account takeover gives an attacker the ability to scan as that user |
-| Audit trail (Phase 2) | Accountability. Tampering would hide misuse |
+| User credentials and sessions | Account takeover gives an attacker the ability to scan as that user |
+| Audit trail | Accountability. Tampering would hide misuse |
 | Scope policy (Phase 6) | Controls which third parties Sentinel can send traffic to |
 | Provider API keys (Phase 8) | Financial and reputational cost if leaked |
 | DB/Redis credentials | Full data access |
@@ -48,7 +48,7 @@ Networks: `edge` (frontend, api) and `internal` (api, worker, postgres, redis;
 | T10 | E | **Pivoting: active tools aimed at Sentinel's own infra** (postgres, redis, api, metadata IPs) | Hard infra denylist the scope policy cannot override, and lab targets on a separate `lab` network | Planned (P6/P7) |
 | T11 | E | SSRF via header checker or redirects; DNS rebinding | SSRF guard: scheme/port allowlist, IP pinning, re-validation on every redirect | Planned (P7) |
 | T12 | S | Cross-Site WebSocket Hijacking | Origin check on connect plus a single-use short-lived WS ticket | Planned (P5) |
-| T13 | R | Users deny running scans | Hash-chained, append-only audit log with attribution | Planned (P2) |
+| T13 | R | Users deny running scans | Hash-chained, append-only audit log with user, session, IP and request ID on every event (ADR 0003) | Done (P2) |
 | T14 | D | Resource exhaustion (huge scans, uploads, slow targets) | Timeouts and caps everywhere. Celery soft/hard limits and prefetch 1. Per-user quotas | Partial (P0 Celery limits) |
 | T15 | I | Secrets in logs | Mandatory redaction processor on every record, including stdlib loggers, tracebacks and the uvicorn supervisor (ADR 0002) | Done (P1) |
 | T16 | T | Path traversal in log analyzer or FIM | PathGuard and read-only mounts | Planned (P10/P11) |
@@ -59,11 +59,23 @@ Networks: `edge` (frontend, api) and `internal` (api, worker, postgres, redis;
 | T21 | I | Stack traces or driver errors reaching clients | Exception hierarchy and handlers. Last-resort 500 built in the outermost middleware with request ID and security headers | Done (P1) |
 | T22 | E | App role altering schema or the audit table | Migrations run only in the one-shot `migrate` container as `sentinel_owner`. `sentinel_app` has DML only, verified in CI | Done (P1) |
 | T23 | E | Malicious YAML in the knowledge base (object construction) | `yaml.safe_load` only (AST test bans `yaml.load`), Pydantic-validated, 1 MB cap, `string.Template` rendering (no attribute access) | Done (P1) |
+| T24 | S | Online password guessing and password spraying | Argon2id; per-account lockout with exponential backoff; per-IP Redis rate limit on login and refresh (fails closed); failed-login burst alert | Done (P2) |
+| T25 | I | Username enumeration via responses or timing | One 401 body for every failure; dummy Argon2 verify for unknown, disabled and locked accounts; real reason only in the audit log | Done (P2) |
+| T26 | S | Session theft via XSS or a database leak | Tokens in HttpOnly `__Host-`/`__Secure-` cookies; only SHA-256 digests stored; 15-minute access tokens; 24-hour absolute session lifetime | Done (P2) |
+| T27 | S | Stolen refresh token replayed | Rotation on every refresh; reuse of a rotated token revokes the session and raises a HIGH alert | Done (P2) |
+| T28 | T | CSRF, including login CSRF and cookie injection | SameSite=Strict, Origin allowlist on every write (login included), session-bound double-submit token | Done (P2) |
+| T29 | E | Privilege escalation or admin lock-out | Hierarchical RBAC dependencies tested for every role; denials audited; no self role change or self disable; last-admin guard; disabling revokes sessions | Done (P2) |
+| T30 | T/R | Audit tampering by the app role | INSERT/SELECT-only grant, UPDATE/DELETE/TRUNCATE triggers, hash chain plus verify endpoint and CRITICAL alert. Owner/superuser tampering remains possible; see section 5 | Done (P2) |
+| T31 | D | Memory exhaustion via concurrent Argon2 hashing | Hash concurrency capped at 4 (about 256 MiB); login input capped at 1024 characters, policy at 128; per-IP rate limit | Done (P2) |
+| T32 | I | Secrets or passwords in audit details | Details pass through the redaction processor before hashing; attempted passwords are never recorded; the login username field is length-capped | Done (P2) |
 
 ## 5. Accepted risks and environment notes
 
 - **Dev CSP is relaxed.** Vite HMR needs inline scripts. The strict CSP only ships in the production nginx image.
 - **The dev filesystem is writable.** `read_only` root filesystems are applied in the production profile (Phase 14), because the dev servers write caches.
 - **The Redis password is visible in the redis container's process args.** It's acceptable inside an isolated container. The production profile can switch to a mounted config file or Docker secret.
-- **Tamper evidence has limits** (Phase 2). The hash chain detects tampering by the app role, not by a DB superuser. External log shipping or WORM storage is the production answer.
+- **Tamper evidence has limits.** The hash chain detects tampering by the app role. It does not stop the table owner (who can disable the triggers) or a DB superuser, and deleting the newest rows leaves a valid shorter chain. Anchoring `head_hash` externally, plus log shipping or WORM storage, is the production answer (ADR 0003).
+- **Unauthenticated 401s are not audited.** Auditing them would let anonymous requests flood the audit table. Failed logins and refreshes are audited behind rate limits.
+- **Concurrent refreshes from two tabs** look like token reuse and revoke the session. The Phase 3 client single-flights refreshes.
+- **Per-IP limits behind a proxy** need `TRUSTED_PROXIES`, otherwise all users share one bucket.
 - **Docker Desktop on Windows:** traceroute is best-effort, and FIM metadata on bind mounts is unreliable. See PROGRESS.md.

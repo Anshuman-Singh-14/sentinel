@@ -8,7 +8,7 @@ remediation.
 > Sentinel is for defensive and educational use only. Run active tools only
 > against systems you own or have written permission to test.
 
-**Status:** Phase 1 (core backend framework & logging). See [`docs/PROGRESS.md`](docs/PROGRESS.md).
+**Status:** Phase 2 (identity, RBAC & audit trail). See [`docs/PROGRESS.md`](docs/PROGRESS.md).
 
 ## Quick start
 
@@ -27,16 +27,29 @@ docker compose up --build
 `docker compose up` runs database migrations first (the one-shot `migrate`
 service), then starts the API and worker.
 
+Create the first administrator (there is no default account or password):
+
+```bash
+docker compose exec api python -m app.cli create-admin --username admin
+```
+
+Then log in with `POST /api/v1/auth/login`. The web login page arrives in Phase 3.
+
 ## Development
 
 ```bash
-docker compose run --rm api pytest                       # backend tests
-docker compose run --rm api sh -c "ruff check . && mypy app tests && bandit -r app -ll -c pyproject.toml"
+docker compose run --rm api pytest                       # backend unit tests (integration tests skip)
+docker compose --profile test run --rm test              # unit + integration tests (real Postgres/Redis)
+docker compose run --rm api sh -c "ruff check . && mypy app tests alembic && bandit -r app -ll -c pyproject.toml"
 docker compose run --rm migrate alembic upgrade head     # apply migrations manually
 docker compose exec frontend npm run test                # frontend tests
 docker compose exec frontend npm run lint
 pre-commit install                                       # git hooks (needs frontend/node_modules: cd frontend && npm ci)
 ```
+
+The integration tests use a separate `sentinel_test` database, created when the
+Postgres volume is first initialised. For an older volume, create it once with
+`docker compose exec postgres sh /docker-entrypoint-initdb.d/02-test-db.sh`.
 
 If frontend dependencies change, recreate the `node_modules` volume:
 `docker compose down && docker volume rm sentinel_frontend_node_modules`.
