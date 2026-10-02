@@ -113,10 +113,11 @@ class RunService:
             )
             if not status.acknowledged:
                 raise AuthorizationRequired
-            if target is None:
+            scope_host = tool.scope_host(params)
+            if scope_host is None:
                 raise ValidationFailed("This tool needs a target.")
             policy = await scope_service.load_policy(self.db, self.settings)
-            decision = await scope_service.precheck(target, policy)
+            decision = await scope_service.precheck(scope_host, policy)
             if decision is not None and not decision.allowed:
                 await scope_service.record_denial(
                     self.audit,
