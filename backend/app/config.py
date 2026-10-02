@@ -160,6 +160,14 @@ class Settings(LoggingSettings):
     port_scan_connect_timeout_seconds: float = Field(default=1.0, gt=0, le=10)
     port_scan_banner_timeout_seconds: float = Field(default=2.0, gt=0, le=10)
 
+    # Header & TLS checker (SSRF guard: 04-security.md section 3).
+    web_check_allowed_ports: Annotated[list[int], NoDecode] = Field(
+        default_factory=lambda: [80, 443, 8000, 8008, 8080, 8443, 8888]
+    )
+    web_check_max_redirects: int = Field(default=5, ge=0, le=10)
+    web_check_timeout_seconds: float = Field(default=10.0, gt=0, le=60)
+    web_check_max_body_bytes: int = Field(default=262_144, ge=1024, le=5_000_000)
+
     # NVD CVE API 2.0. The key only raises the rate limit (5 -> 50 requests per
     # 30 s); without one the scanner still works, just with slower enrichment.
     nvd_api_key: SecretStr | None = None
@@ -172,6 +180,14 @@ class Settings(LoggingSettings):
     _split_nameservers = field_validator("dns_nameservers", mode="before")(_split_csv)
     _split_infra = field_validator("scope_infra_subnets", mode="before")(_split_csv)
     _split_allow = field_validator("scope_default_allow", mode="before")(_split_csv)
+    _split_web_ports = field_validator("web_check_allowed_ports", mode="before")(_split_csv)
+
+    @field_validator("web_check_allowed_ports")
+    @classmethod
+    def _valid_ports(cls, value: list[int]) -> list[int]:
+        if not value or any(not 1 <= p <= 65535 for p in value):
+            raise ValueError("WEB_CHECK_ALLOWED_PORTS must list ports between 1 and 65535")
+        return value
 
     @field_validator("scope_infra_subnets", "scope_default_allow")
     @classmethod

@@ -51,6 +51,7 @@ x-backend-env: &backend-env
   SCOPE_DEFAULT_ALLOW: 127.0.0.0/8,::1/128,${SENTINEL_LAB_SUBNET:-10.231.10.0/24}
   PORT_SCAN_MAX_PORTS: ${PORT_SCAN_MAX_PORTS:-1024}
   NVD_API_KEY: ${NVD_API_KEY:-}
+  WEB_CHECK_ALLOWED_PORTS: ${WEB_CHECK_ALLOWED_PORTS:-80,443,8000,8008,8080,8443,8888}
 
 services:
   postgres:
@@ -267,6 +268,21 @@ services:
       - no-new-privileges:true
     cap_drop: [ALL]
     read_only: true
+    restart: unless-stopped
+
+  # HTTPS target for the header/TLS checker: good security headers, an
+  # HTTP->HTTPS redirect, and a self-signed certificate (a HIGH finding).
+  lab-https:
+    profiles: [lab]
+    build:
+      context: ./infra/lab/https
+    image: sentinel-lab-https:dev
+    networks:
+      lab:
+        ipv4_address: ${SENTINEL_LAB_HTTPS_IP:-10.231.10.13}
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
     restart: unless-stopped
 
   # A real Redis with no password: the classic "exposed database" finding.

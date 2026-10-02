@@ -46,7 +46,7 @@ Networks: `edge` (frontend, api) and `internal` (api, worker, postgres, redis;
 | T8 | S | Cross-origin credentialed requests | Explicit CORS allowlist (`*` rejected at startup). Dev uses a same-origin proxy | Done (P0) |
 | T9 | T | Stored XSS from tool output | ESLint bans `dangerouslySetInnerHTML`. All data renders as React text; `JsonViewer` never creates links; tested with `<script>`/`javascript:` payloads (ADR 0004) | Done for the shell (P3); re-checked per result viewer |
 | T10 | E | **Pivoting: active tools aimed at Sentinel's own infra** (postgres, redis, api, metadata IPs) | Hard denylist of pinned infra subnets plus metadata/link-local/multicast ranges, checked after resolution on every address (IPv4-mapped IPv6 unwrapped), never stored in the DB and not overridable by policy; lab targets on a separate internal `lab` network (ADR 0007) | Done (P6) |
-| T11 | E | SSRF via header checker or redirects; DNS rebinding | SSRF guard: scheme/port allowlist, IP pinning, re-validation on every redirect | Planned (P7) |
+| T11 | E | SSRF via header checker or redirects; DNS rebinding | URL shape rules (http/https, allowlisted ports, no credentials/control chars); scope + hard denylist on every hop; IP pinning with Host/SNI; manual redirects re-validated and re-scoped (denials audited); `trust_env=False`; capped bodies/headers (ADR 0008) | Done (P7) |
 | T12 | S | Cross-Site WebSocket Hijacking | Origin allowlist on the handshake plus a single-use, 30-second, run-bound ticket from a CSRF-checked POST, redeemed with GETDEL (ADR 0006) | Done (P5) |
 | T13 | R | Users deny running scans | Hash-chained, append-only audit log with user, session, IP and request ID on every event (ADR 0003) | Done (P2) |
 | T14 | D | Resource exhaustion (huge scans, uploads, slow targets) | Timeouts and caps everywhere. Celery soft/hard limits and prefetch 1. Per-user quotas | Partial (P0 Celery limits) |
@@ -87,6 +87,9 @@ Networks: `edge` (frontend, api) and `internal` (api, worker, postgres, redis;
 | T49 | D/I | NVD integration abused or failing (rate-limit bans, slow API, hostile responses) | Shared Redis rate window under NVD limits, bounded retries honouring Retry-After, timeouts, JSON-only cache, capped results/descriptions; failure degrades to a partial result | Done (P6) |
 | T50 | T | Misleading CVE matches from spoofed or distro-patched banners | Confidence never HIGH; LOW for distribution builds with backport explanation; every CVE finding states the banner caveat | Done (P6) |
 | T51 | E | Lab targets used as a foothold | Lab network is internal (no egress) and joined only by the worker; lab-banners runs no real service, non-root, read-only, all capabilities dropped | Done (P6) |
+| T52 | I | Session cookies of scanned sites captured in Sentinel's database | Set-Cookie parsed to name + attributes on receipt; values dropped and raw headers removed; tested | Done (P7) |
+| T53 | E | Allowed domain name pointed (by its DNS owner) at internal addresses | Domain rules vouch for public addresses only; non-global addresses also need a CIDR rule (`internal_via_domain`) | Done (P7) |
+| T54 | T | Certificate validation weakened by IP pinning | SNI and hostname verification use the original name (prototyped with httpcore `sni_hostname`); unverified handshakes only read certificates or headers of already-failing sites | Done (P7) |
 
 ## 5. Accepted risks and environment notes
 

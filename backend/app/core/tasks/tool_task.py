@@ -27,6 +27,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit import Actor, ActorType, AuditAction, Outcome, build_audit_service
+from app.core.errors import ScopeDenied
 from app.core.logging import get_logger
 from app.core.logging.context import bind_context
 from app.core.runs import events
@@ -166,6 +167,27 @@ async def _publish(run: ToolRun) -> None:
         logger.warning("tool.run.publish_failed", run_id=str(run.id))
 
 
+def _scope_checker(run: ToolRun, actor: Actor, settings: Any) -> Any:
+    """Scope check for hosts a tool reaches mid-run (redirects). Denials are audited."""
+
+    async def check(host: str) -> tuple[str, ...]:
+        async with get_sessionmaker()() as session:
+            decision = await scope_service.evaluate_target(session, host, settings)
+        if not decision.allowed:
+            await scope_service.record_denial(
+                build_audit_service("worker"),
+                actor,
+                tool_id=run.tool_id,
+                decision=decision,
+                stage="redirect",
+                run_id=run.id,
+            )
+            raise ScopeDenied(decision.reason)
+        return decision.addresses
+
+    return check
+
+
 async def execute_run(run_id: uuid.UUID) -> str:
     _ensure_tools()
     from app.config import get_settings
@@ -272,11 +294,16 @@ async def execute_run(run_id: uuid.UUID) -> str:
             return run.status
 
         authorized: tuple[str, ...] = ()
+        scope_check = None
         if tool.is_active:
             # The authoritative scope check: here, in the worker, right before
             # any traffic, with the worker's own view of DNS (it can resolve
             # lab names the API cannot) and the policy as it is *now*.
-            decision = await scope_service.evaluate_target(db, run.target or "", settings)
+            try:
+                host = tool.scope_host(tool.params_model.model_validate(run.params)) or ""
+            except ValueError:
+                host = ""
+            decision = await scope_service.evaluate_target(db, host, settings)
             if not decision.allowed:
                 await scope_service.record_denial(
                     build_audit_service("worker"),
@@ -298,6 +325,7 @@ async def execute_run(run_id: uuid.UUID) -> str:
                 await _publish(run)
                 return run.status
             authorized = decision.addresses
+            scope_check = _scope_checker(run, actor, settings)
 
         ctx = ToolContext(
             run_id=run_id,
@@ -305,6 +333,7 @@ async def execute_run(run_id: uuid.UUID) -> str:
             progress_callback=on_progress,
             cancel_check=should_cancel,
             authorized_addresses=authorized,
+            scope_check=scope_check,
         )
         result = await execute_tool(
             tool, run.params, run_id=run_id, initiated_by=run.username, ctx=ctx

@@ -20,6 +20,7 @@ dependencies = [
     "argon2-cffi==25.1.0",        # Argon2id password hashing (03-logging-audit.md section 1)
     "dnspython==2.8.0",           # async DNS resolver for dns_lookup (no shell `dig`, CLAUDE.md rule 1)
     "httpx==0.28.1",              # async HTTP client (NVD API; later header/TLS checker and threat intel)
+    "cryptography==50.0.2",       # X.509 parsing of certificates that fail verification (header_tls)
 ]
 
 [dependency-groups]

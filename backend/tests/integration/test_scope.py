@@ -312,3 +312,76 @@ def test_nvd_window_limiter_does_not_count_refused_attempts(db: Database) -> Non
         assert run(go()) == "2"  # refused attempts were handed back
     finally:
         events._client, events._client_loop = saved
+
+
+# --- header/TLS checker (Phase 7) --------------------------------------------------------
+
+
+def check(client: TestClient, url: str) -> Any:
+    return client.post(
+        "/api/v1/tools/header_tls/runs",
+        json={"params": {"url": url, "check_http_redirect": False}},
+        headers=csrf(client),
+    )
+
+
+def test_header_check_validates_urls_and_scope(
+    client: TestClient,
+    db: Database,
+    acknowledged: Any,
+    dispatcher: Captured,  # noqa: F811
+) -> None:
+    bad_port = check(client, "http://127.0.0.1:22/")
+    assert bad_port.status_code == 422
+    assert "Port 22 is not allowed" in bad_port.text
+    assert check(client, "file:///etc/passwd").status_code == 422
+    denied = check(client, "https://8.8.8.8/")
+    assert denied.status_code == 403
+    assert denied.json()["error"]["details"]["reason"] == "out_of_scope"
+    assert check(client, "http://postgres:8080/").json()["error"]["details"]["reason"] == (
+        "hard_denied"
+    )
+    assert dispatcher.sent == []
+
+
+class _RedirectToMetadata(socketserver.BaseRequestHandler):
+    def handle(self) -> None:
+        self.request.recv(4096)
+        self.request.sendall(
+            b"HTTP/1.1 302 Found\r\nLocation: http://169.254.169.254/latest/meta-data/\r\n"
+            b"Content-Length: 0\r\nConnection: close\r\n\r\n"
+        )
+
+
+def test_redirect_into_a_protected_range_is_blocked_and_audited(
+    client: TestClient,
+    db: Database,
+    acknowledged: Any,
+    dispatcher: Captured,  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.config import get_settings
+
+    server = socketserver.ThreadingTCPServer(("127.0.0.1", 0), _RedirectToMetadata)
+    server.daemon_threads = True
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    port = int(server.server_address[1])
+    monkeypatch.setattr(get_settings(), "web_check_allowed_ports", [80, 443, port])
+    try:
+        response = check(client, f"http://127.0.0.1:{port}/")
+        assert response.status_code == 202, response.text
+        run_id = response.json()["run_id"]
+        assert run_worker(run_id) == "COMPLETED"
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    detail = client.get(f"/api/v1/runs/{run_id}").json()
+    assert detail["raw_data"]["hops"][0]["followed"] is False
+    assert "outside the scan scope" in detail["raw_data"]["hops"][0]["note"]
+    assert any(f["item"] == "A redirect was not followed" for f in detail["findings"])
+    [event] = db.audit("tool.run.denied_scope")
+    assert event["details"]["stage"] == "redirect"
+    assert event["target"] == "169.254.169.254"
+    assert event["reason"] == "hard_denied"
+    assert event["is_security_event"] is True
