@@ -1,17 +1,65 @@
-import { useParams } from "react-router";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { Link, useNavigate, useParams } from "react-router";
 
-import { Badge, Card, JsonViewer, Spinner, Tabs } from "../../components/ui";
-import { errorMessage } from "../../lib/api/errors";
-import { roleAllows } from "../../types/api";
 import { NotFoundPage } from "../../app/NotFoundPage";
+import { Badge, Card, JsonViewer, Spinner, Tabs } from "../../components/ui";
+import { runsApi } from "../../lib/api/endpoints";
+import { ApiError, errorMessage } from "../../lib/api/errors";
+import type { ToolDescriptor } from "../../types/api";
+import { roleAllows } from "../../types/api";
 import { useUser } from "../auth/guards";
+import { runQueryKey } from "../runs/useRunStatus";
 import { CATEGORY_LABELS } from "./registry";
+import { SchemaForm } from "./SchemaForm";
+import type { ObjectSchema } from "./SchemaForm";
 import { useToolCatalogue } from "./useToolCatalogue";
 
-/**
- * Backend tool page. Phase 3 shows the catalogue entry; the run form, live
- * status and result viewer arrive with the task infrastructure in Phase 5.
- */
+/** Map a 422 from the API (`loc: ["params", field]`) to per-field messages. */
+export function fieldErrors(error: unknown): Record<string, string> {
+  if (!(error instanceof ApiError) || error.code !== "validation_failed") return {};
+  const errors = (error.details.errors ?? []) as Array<{ loc?: unknown[]; msg?: string }>;
+  const out: Record<string, string> = {};
+  for (const e of errors) {
+    const field = e.loc?.[0] === "params" ? e.loc[1] : undefined;
+    if (typeof field === "string" && e.msg) out[field] = e.msg.replace(/^Value error, /, "");
+  }
+  return out;
+}
+
+function RunForm({ tool }: { tool: ToolDescriptor }) {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const start = useMutation({
+    mutationFn: (params: Record<string, unknown>) => runsApi.create(tool.tool_id, params),
+    onSuccess: (run) => {
+      queryClient.setQueryData(runQueryKey(run.run_id), run);
+      void queryClient.invalidateQueries({ queryKey: ["runs", "list"] });
+      navigate(`/runs/${run.run_id}`);
+    },
+  });
+  const serverErrors = fieldErrors(start.error);
+  const generalError =
+    start.isError && Object.keys(serverErrors).length === 0 ? errorMessage(start.error) : null;
+
+  return (
+    <div className="flex flex-col gap-3">
+      <SchemaForm
+        schema={tool.params_schema as ObjectSchema}
+        submitLabel="Run"
+        busy={start.isPending}
+        serverErrors={serverErrors}
+        onSubmit={(params) => start.mutate(params)}
+      />
+      {generalError && (
+        <p role="alert" className="text-sm text-fail">
+          {generalError}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** Backend tool page: description, a generated run form and the tool contract. */
 export function ToolPage() {
   const { toolId } = useParams();
   const user = useUser();
@@ -49,12 +97,24 @@ export function ToolPage() {
         </div>
       </div>
 
-      <Card title="Run">
-        <p className="text-sm text-muted">
-          {canRun
-            ? "Running tools from the console arrives with the task infrastructure in a later phase."
-            : `Your role (${user.role}) can view this tool's results but cannot run it.`}
-        </p>
+      <Card
+        title="Run"
+        actions={
+          <Link
+            to={`/runs?tool_id=${encodeURIComponent(tool.tool_id)}`}
+            className="text-xs font-semibold text-accent hover:underline"
+          >
+            Previous runs
+          </Link>
+        }
+      >
+        {canRun ? (
+          <RunForm tool={tool} />
+        ) : (
+          <p className="text-sm text-muted">
+            Your role ({user.role}) can view this tool's results but cannot run it.
+          </p>
+        )}
       </Card>
 
       <Card title="Contract">

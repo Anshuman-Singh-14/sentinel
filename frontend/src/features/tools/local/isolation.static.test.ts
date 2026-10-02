@@ -88,6 +88,18 @@ function walk(): { files: Set<string>; packages: Set<string> } {
   return { files, packages };
 }
 
+/**
+ * Source with comments removed, so documentation that *mentions* an API
+ * ("pushed over the run WebSocket") is not mistaken for code that uses it.
+ * Only block comments and whole-line `//` comments are stripped: a `//`
+ * inside a string (a URL) stays and is still checked.
+ */
+function code(file: string): string {
+  return readFileSync(file, "utf-8")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/^\s*\/\/.*$/gm, "");
+}
+
 const graph = walk();
 const rel = (f: string) => relative(SRC, f).replace(/\\/g, "/");
 
@@ -114,7 +126,7 @@ describe("local tools are isolated from the network (static)", () => {
     it(`no reachable module uses ${label}`, () => {
       const offenders = [...graph.files]
         .filter((f) => !/\.test\.tsx?$/.test(f))
-        .filter((f) => pattern.test(readFileSync(f, "utf-8")))
+        .filter((f) => pattern.test(code(f)))
         .map(rel);
       expect(offenders).toEqual([]);
     });

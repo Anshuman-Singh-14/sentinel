@@ -2,6 +2,9 @@
 
 import type {
   AuditPage,
+  RunDetail,
+  RunPage,
+  RunStatus,
   HealthResponse,
   SecurityAlert,
   SessionInfo,
@@ -64,4 +67,27 @@ export const adminApi = {
     }),
   acknowledgeAlert: (alertId: string) =>
     api.post<SecurityAlert>(`${V1}/admin/alerts/${encodeURIComponent(alertId)}/acknowledge`),
+};
+
+export interface RunFilters {
+  mine?: boolean;
+  tool_id?: string;
+  status?: RunStatus;
+}
+
+export const runsApi = {
+  create: (toolId: string, params: Record<string, unknown>) =>
+    api.post<RunDetail>(`${V1}/tools/${encodeURIComponent(toolId)}/runs`, { params }),
+  get: (runId: string, signal?: AbortSignal) =>
+    api.get<RunDetail>(`${V1}/runs/${encodeURIComponent(runId)}`, { signal }),
+  list: (filters: RunFilters, before?: string, signal?: AbortSignal) =>
+    api.get<RunPage>(`${V1}/runs`, {
+      query: { ...filters, mine: filters.mine || undefined, before, limit: 25 },
+      signal,
+    }),
+  cancel: (runId: string) => api.post<RunDetail>(`${V1}/runs/${encodeURIComponent(runId)}/cancel`),
+  wsTicket: (runId: string) =>
+    api.post<{ ticket: string; expires_in: number }>(
+      `${V1}/runs/${encodeURIComponent(runId)}/ws-ticket`,
+    ),
 };
