@@ -11,6 +11,12 @@ updates:
     groups:
       dev-tooling:
         dependency-type: development
+    # Major versions are deliberate upgrades, not bot PRs: TypeScript majors
+    # change the compiler (and need matching typescript-eslint/Vite support),
+    # and @types/node must track the Node 24 runtime pinned by ADR 0001.
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: docker
     directories: ["/backend", "/frontend"]
     schedule:
