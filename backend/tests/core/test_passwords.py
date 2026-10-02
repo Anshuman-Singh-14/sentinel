@@ -15,7 +15,7 @@ from app.core.auth.passwords import (
 from app.core.auth.tokens import hash_token, is_plausible_token, new_token, tokens_equal
 from app.core.errors import PasswordPolicyViolation
 
-GOOD_PASSWORD = "violet-harbor-71-quartz"
+GOOD_PASSWORD = "test-password-123"
 
 
 async def test_hash_is_argon2id_and_verifies() -> None:
