@@ -17,6 +17,7 @@ dependencies = [
     "sqlalchemy[asyncio]==2.1.1", # async ORM
     "alembic==1.20.0",            # schema migrations (CLAUDE.md rule 10)
     "pyyaml==6.0.3",              # knowledge base YAML (safe_load only)
+    "argon2-cffi==25.1.0",        # Argon2id password hashing (03-logging-audit.md section 1)
 ]
 
 [dependency-groups]
