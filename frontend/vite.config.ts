@@ -22,7 +22,11 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
-    proxy: Object.fromEntries(proxied.map((path) => [path, { target: apiTarget }])),
+    proxy: {
+      ...Object.fromEntries(proxied.map((path) => [path, { target: apiTarget }])),
+      // Live run updates (Phase 5). Same origin as the page, like everything else.
+      "/ws": { target: apiTarget, ws: true },
+    },
     // Bind mounts from a Windows host do not deliver file events to the container.
     watch: process.env.VITE_USE_POLLING === "true" ? { usePolling: true, interval: 500 } : {},
   },
