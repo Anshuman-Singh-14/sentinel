@@ -1,0 +1,69 @@
+# Web Defensive Audit (02-modules.md, "Initial built-in playbook").
+#
+# DNS -> port scan (web preset) -> header & TLS -> threat intel -> unified findings.
+# The report export is added by Phase 13 (reporting).
+#
+# References use the safe resolver in app/playbooks/templating.py: only
+# {{ inputs.x }} and {{ steps.<id>.<field>[n] }}, never expressions.
+schema_version: 1
+id: web_defensive_audit
+name: Web Defensive Audit
+version: "1.0.0"
+description: >-
+  A defensive health check of one web host: public DNS and email records, which
+  web ports are open (with known CVEs), and the site's security headers, cookies
+  and TLS certificate. Findings from every step are merged, de-duplicated and
+  ranked by severity.
+target_input: target
+inputs:
+  target:
+    kind: host
+    title: Target host
+    description: Host name or IP address to audit. It must be inside the scan scope.
+    example: lab-https
+  web_url:
+    kind: url
+    title: Website URL
+    description: >-
+      The page to check for headers and TLS. Defaults to https://<target>/. For the
+      lab, use http://lab-https:8080/ (it redirects to HTTPS on 8443).
+    required: false
+    default: "https://{{ inputs.target }}/"
+steps:
+  - id: dns
+    name: DNS & email security
+    tool_id: dns_lookup
+    params:
+      domain: "{{ inputs.target }}"
+    # Internal or lab names (e.g. lab-https) have no public DNS: this step then
+    # fails and the audit continues with the remaining checks.
+    on_failure: continue
+    description: Public DNS records, SPF/DMARC, CAA and dangling CNAMEs.
+  - id: ports
+    name: Web port scan
+    tool_id: port_scanner
+    params:
+      target: "{{ inputs.target }}"
+      preset: web
+      grab_banners: true
+      cve_lookup: true
+    on_failure: continue
+    description: Which web ports answer, what software they announce, and known CVEs.
+  - id: web
+    name: Security headers & TLS
+    tool_id: header_tls
+    params:
+      url: "{{ inputs.web_url }}"
+      check_http_redirect: true
+    on_failure: continue
+    description: HTTPS and redirect, certificate, security headers and cookie flags.
+  - id: intel
+    name: Threat intelligence
+    tool_id: threat_intel
+    params:
+      indicators: "{{ steps.dns.resolved_ips }}"
+    # The threat intelligence tool arrives in Phase 8. Until it is installed this
+    # step is skipped, and it activates automatically once registered.
+    optional: true
+    on_failure: continue
+    description: Reputation of the resolved IP addresses (AbuseIPDB, VirusTotal, Shodan).
