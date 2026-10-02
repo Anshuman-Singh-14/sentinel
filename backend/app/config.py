@@ -99,6 +99,31 @@ class Settings(LoggingSettings):
     # Every outbound check has a timeout (CLAUDE.md rule 7).
     readiness_timeout_seconds: float = Field(default=2.0, gt=0, le=10)
 
+    # --- Authentication and sessions (03-logging-audit.md section 1, ADR 0003) ---
+    # Short-lived access token: bounds how long a stolen cookie stays useful.
+    access_token_ttl_minutes: int = Field(default=15, ge=1, le=60)
+    # The refresh token expires after this much inactivity...
+    refresh_token_idle_hours: int = Field(default=12, ge=1, le=168)
+    # ...and every session ends after this long, however active it is.
+    session_absolute_hours: int = Field(default=24, ge=1, le=720)
+    # Secure cookies are only sent over HTTPS (browsers also accept them on
+    # http://localhost). Disabling is a dev-only escape hatch for Safari and is
+    # refused in production.
+    cookie_secure: bool = True
+
+    # Account lockout: after N consecutive failures the account locks, with the
+    # duration doubling on each further failure up to the maximum.
+    login_max_failures: int = Field(default=5, ge=1, le=100)
+    lockout_base_seconds: int = Field(default=60, ge=1, le=3600)
+    lockout_max_seconds: int = Field(default=900, ge=1, le=86_400)
+    # Per-IP limit on login and refresh attempts. Stops password spraying
+    # across many accounts, which per-account lockout alone cannot.
+    auth_rate_limit_per_minute: int = Field(default=10, ge=1, le=1000)
+
+    # Security alerting (03-logging-audit.md section 7).
+    alert_failed_login_threshold: int = Field(default=5, ge=1, le=1000)
+    alert_window_minutes: int = Field(default=10, ge=1, le=1440)
+
     _split_cors = field_validator("cors_origins", mode="before")(_split_csv)
     _split_proxies = field_validator("trusted_proxies", mode="before")(_split_csv)
 
@@ -117,6 +142,14 @@ class Settings(LoggingSettings):
         for entry in value:
             ipaddress.ip_network(entry, strict=False)  # raises ValueError if invalid
         return value
+
+    @model_validator(mode="after")
+    def _secure_cookies_in_production(self) -> Self:
+        if self.environment == "production" and not self.cookie_secure:
+            raise ValueError("COOKIE_SECURE=false is not allowed in production")
+        if self.lockout_max_seconds < self.lockout_base_seconds:
+            raise ValueError("LOCKOUT_MAX_SECONDS must be >= LOCKOUT_BASE_SECONDS")
+        return self
 
     @property
     def trusted_proxy_networks(self) -> list[ipaddress.IPv4Network | ipaddress.IPv6Network]:
