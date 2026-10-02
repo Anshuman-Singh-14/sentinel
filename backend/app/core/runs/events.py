@@ -71,6 +71,14 @@ def cancel_key(run_id: uuid.UUID) -> str:
     return f"sentinel:run:{run_id}:cancel"
 
 
+def playbook_channel(playbook_run_id: uuid.UUID) -> str:
+    return f"sentinel:playbook:{playbook_run_id}"
+
+
+def playbook_cancel_key(playbook_run_id: uuid.UUID) -> str:
+    return f"sentinel:playbook:{playbook_run_id}:cancel"
+
+
 def _ticket_key(ticket: str) -> str:
     # Only the digest is stored, like session tokens (ADR 0003).
     return f"sentinel:ws-ticket:{hashlib.sha256(ticket.encode()).hexdigest()}"
@@ -126,16 +134,57 @@ async def is_cancel_requested(run_id: uuid.UUID, client: aioredis.Redis | None =
 
 
 @dataclass(frozen=True, slots=True)
+class PlaybookEvent:
+    """Snapshot of a playbook run's moving parts, published on every change."""
+
+    playbook_run_id: str
+    status: str
+    progress_pct: int
+    current_step: str | None
+    steps: list[dict[str, str]]  # [{"step_id": ..., "status": ...}]
+    ts: str
+
+    def to_json(self) -> str:
+        return json.dumps({"type": "playbook.update", **asdict(self)})
+
+
+async def publish_playbook(event: PlaybookEvent, client: aioredis.Redis | None = None) -> None:
+    await (client or get_redis()).publish(
+        playbook_channel(uuid.UUID(event.playbook_run_id)), event.to_json()
+    )
+
+
+async def request_playbook_cancel(
+    playbook_run_id: uuid.UUID, client: aioredis.Redis | None = None
+) -> None:
+    await (client or get_redis()).set(
+        playbook_cancel_key(playbook_run_id), "1", ex=CANCEL_FLAG_TTL_SECONDS
+    )
+
+
+async def is_playbook_cancel_requested(
+    playbook_run_id: uuid.UUID, client: aioredis.Redis | None = None
+) -> bool:
+    return bool(await (client or get_redis()).exists(playbook_cancel_key(playbook_run_id)))
+
+
+@dataclass(frozen=True, slots=True)
 class TicketGrant:
     user_id: str
     run_id: str
+    kind: str = "run"  # "run" or "playbook": a ticket only opens the stream it was issued for
 
 
 async def issue_ws_ticket(
-    user_id: uuid.UUID, run_id: uuid.UUID, ttl_seconds: int, client: aioredis.Redis | None = None
+    user_id: uuid.UUID,
+    run_id: uuid.UUID,
+    ttl_seconds: int,
+    client: aioredis.Redis | None = None,
+    *,
+    kind: str = "run",
 ) -> str:
     ticket = secrets.token_urlsafe(32)
-    payload = json.dumps({"user_id": str(user_id), "run_id": str(run_id)})
+    payload = json.dumps({"user_id": str(user_id), "run_id": str(run_id), "kind": kind})
     await (client or get_redis()).set(_ticket_key(ticket), payload, ex=ttl_seconds)
     return ticket
 
@@ -148,4 +197,6 @@ async def redeem_ws_ticket(ticket: str, client: aioredis.Redis | None = None) ->
     if not raw:
         return None
     data = json.loads(raw)
-    return TicketGrant(user_id=str(data["user_id"]), run_id=str(data["run_id"]))
+    return TicketGrant(
+        user_id=str(data["user_id"]), run_id=str(data["run_id"]), kind=str(data.get("kind", "run"))
+    )
