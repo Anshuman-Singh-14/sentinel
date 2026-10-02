@@ -124,8 +124,34 @@ class Settings(LoggingSettings):
     alert_failed_login_threshold: int = Field(default=5, ge=1, le=1000)
     alert_window_minutes: int = Field(default=10, ge=1, le=1440)
 
+    # Tool runs (Phase 5). Quotas bound how much load one account can create.
+    run_rate_limit_per_minute: int = Field(default=20, ge=1, le=1000)
+    max_active_runs_per_user: int = Field(default=3, ge=1, le=100)
+    # Raw tool output stored per run; larger output is replaced by a notice.
+    max_raw_output_bytes: int = Field(default=1_000_000, ge=10_000, le=20_000_000)
+    # Single-use WebSocket tickets (threat model T12).
+    ws_ticket_ttl_seconds: int = Field(default=30, ge=5, le=300)
+
+    # DNS tool. Explicit upstream resolvers instead of the container's resolver:
+    # Docker's embedded DNS (127.0.0.11) would answer for internal service names
+    # (postgres, redis), exposing infrastructure through the tool. Empty means
+    # use the system resolver (for networks that block public DNS).
+    dns_nameservers: Annotated[list[str], NoDecode] = Field(
+        default_factory=lambda: ["1.1.1.1", "9.9.9.9"]
+    )
+    dns_timeout_seconds: float = Field(default=3.0, gt=0, le=30)
+    dns_lifetime_seconds: float = Field(default=6.0, gt=0, le=60)
+
     _split_cors = field_validator("cors_origins", mode="before")(_split_csv)
     _split_proxies = field_validator("trusted_proxies", mode="before")(_split_csv)
+    _split_nameservers = field_validator("dns_nameservers", mode="before")(_split_csv)
+
+    @field_validator("dns_nameservers")
+    @classmethod
+    def _nameservers_are_ips(cls, value: list[str]) -> list[str]:
+        for entry in value:
+            ipaddress.ip_address(entry)  # raises ValueError if not an IP literal
+        return value
 
     @field_validator("cors_origins")
     @classmethod

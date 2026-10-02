@@ -5,6 +5,8 @@ import { RequireAuth, RequireRole } from "../features/auth/guards";
 import { LoginPage } from "../features/auth/LoginPage";
 import { AuditPage } from "../features/audit/AuditPage";
 import { DashboardPage } from "../features/dashboard/DashboardPage";
+import { RunPage } from "../features/runs/RunPage";
+import { RunsPage } from "../features/runs/RunsPage";
 import { LOCAL_TOOLS, localToolPath } from "../features/tools/registry";
 import { ToolPage } from "../features/tools/ToolPage";
 import { AppShell } from "./layout/AppShell";
@@ -26,6 +28,8 @@ export const routes: RouteObject[] = [
         children: [
           { index: true, element: <DashboardPage /> },
           { path: "tools/:toolId", element: <ToolPage /> },
+          { path: "runs", element: <RunsPage /> },
+          { path: "runs/:runId", element: <RunPage /> },
           // One route per local tool, generated from the manifest. Each is
           // code-split; the router loads the chunk before navigating.
           ...LOCAL_TOOLS.filter((tool) => tool.available).map((tool): RouteObject => ({

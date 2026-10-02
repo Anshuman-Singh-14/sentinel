@@ -41,6 +41,10 @@ x-backend-env: &backend-env
   AUTH_RATE_LIMIT_PER_MINUTE: ${AUTH_RATE_LIMIT_PER_MINUTE:-10}
   ALERT_FAILED_LOGIN_THRESHOLD: ${ALERT_FAILED_LOGIN_THRESHOLD:-5}
   ALERT_WINDOW_MINUTES: ${ALERT_WINDOW_MINUTES:-10}
+  # Tool runs and the DNS tool (Phase 5). Defaults match app/config.py.
+  RUN_RATE_LIMIT_PER_MINUTE: ${RUN_RATE_LIMIT_PER_MINUTE:-20}
+  MAX_ACTIVE_RUNS_PER_USER: ${MAX_ACTIVE_RUNS_PER_USER:-3}
+  DNS_NAMESERVERS: ${DNS_NAMESERVERS-1.1.1.1,9.9.9.9}
 
 services:
   postgres:
@@ -148,9 +152,11 @@ services:
       <<: *backend-env
     volumes:
       - ./backend:/app
-    # Phase 0: no internet egress. Phases 5+ attach the networks that active
-    # tools need (see docs/threat-model.md, the infra denylist and lab network).
-    networks: [internal]
+    # `egress` gives the worker outbound internet access for tools (DNS from
+    # Phase 5). It is a separate network so the API and data stores stay
+    # without egress. Active tools are additionally gated by the scope policy
+    # and infra denylist (Phase 6, docs/threat-model.md T10).
+    networks: [internal, egress]
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -227,6 +233,8 @@ networks:
   internal:
     internal: true
   edge: {}
+  # Outbound-only network for the worker (nothing publishes ports on it).
+  egress: {}
 
 volumes:
   pgdata:

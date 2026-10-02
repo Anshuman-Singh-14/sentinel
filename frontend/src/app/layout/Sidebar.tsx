@@ -1,4 +1,4 @@
-import { LayoutDashboard, Lock, ScrollText, ShieldHalf, UserCog } from "lucide-react";
+import { History, LayoutDashboard, Lock, ScrollText, ShieldHalf, UserCog } from "lucide-react";
 import { NavLink } from "react-router";
 
 import { Badge, cn, Spinner } from "../../components/ui";
@@ -106,6 +106,12 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           <li>
             <NavEntry
               item={{ id: "dashboard", label: "Dashboard", path: "/", icon: LayoutDashboard }}
+              onNavigate={onNavigate}
+            />
+          </li>
+          <li>
+            <NavEntry
+              item={{ id: "runs", label: "Run history", path: "/runs", icon: History }}
               onNavigate={onNavigate}
             />
           </li>

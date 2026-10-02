@@ -70,3 +70,15 @@ async def dispose_engine() -> None:
         await _engine.dispose()
     _engine = None
     _sessionmaker = None
+
+
+def forget_engine() -> None:
+    """Abandon the engine without awaiting its disposal.
+
+    Used when the event loop it is bound to is being thrown away (a Celery
+    task interrupted mid-await). Awaiting ``dispose()`` there is impossible;
+    the next ``get_engine()`` builds a fresh pool on the new loop.
+    """
+    global _engine, _sessionmaker
+    _engine = None
+    _sessionmaker = None

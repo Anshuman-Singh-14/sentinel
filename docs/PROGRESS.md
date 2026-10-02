@@ -7,7 +7,7 @@
 | 2 | Identity, RBAC & audit | Complete | 308 backend tests (267 unit + 41 integration); merged (PR #11) |
 | 3 | Frontend shell | Complete locally, awaiting CI | 129 vitest tests; branch `feat/phase-3-frontend-shell`; audit viewer UI included |
 | 4 | Client-side utilities | Complete locally, awaiting CI | 289 vitest tests; branch `feat/phase-4-client-utilities` stacked on Phase 3 |
-| 5 | Task infra & DNS | Not started | ADR needed: async tools inside Celery (event loop per process) |
+| 5 | Task infra & DNS | Complete locally, awaiting CI | 404 backend + 311 frontend tests; live DNS run verified; ADR 0006; stacked on Phase 4 |
 | 6 | Scope policy & port scanner | Not started | Include the infra hard denylist + `lab` network |
 | 7 | Header & TLS checker | Not started | Prototype httpx IP pinning with `sni_hostname` first |
 | 8 | Threat intel | Not started | Stretch scope: two providers fully, third optional |
@@ -40,7 +40,9 @@ containers. See `docs/adr/0001-architecture-and-stack.md`.
   Phase 3 first, then rebase Phase 4 onto `main`.
 - Password analyzer: the optional HIBP k-anonymity check (spec "optional future") is not
   implemented; it would be the only network call in the local tools.
-- Phase 5: WebSocket auth (T12) and `useRunStatus` build on the Phase 3 API client.
+- Branch `feat/phase-5-tasks-dns` is stacked on Phase 4. Merge order: 3 → 4 → 5.
+- Re-check that nginx's `connect-src 'self'` allows same-origin `wss:` in all target
+  browsers (Phase 14).
 - Existing dev volumes need the test DB once:
   `docker compose exec postgres sh /docker-entrypoint-initdb.d/02-test-db.sh`.
 - The access-log route template relies on a FastAPI 0.14x internal (ADR 0002). A test pins it.
@@ -48,6 +50,53 @@ containers. See `docs/adr/0001-architecture-and-stack.md`.
   already-open Postgres 18 / Redis 8 / Node 26 PRs on GitHub.
 - LICENSE copyright holder (`Anshuman-Singh-14`) needs confirming by the repo owner.
 - The repo lives in OneDrive. Moving it to a non-synced path is recommended.
+
+## Phase 5 log
+
+- **Run lifecycle:**
+  - `tool_runs` and `findings` (migration 0003, explicit grants, no DELETE).
+  - `RunService` covers create, list, get and cancel. The run row and its audit event
+    commit before dispatch, and the task carries the run id only.
+  - Compare-and-set status transitions.
+  - Quotas: 20 runs per minute and 3 active runs per user.
+  - Active tools are refused until Phase 6 (fail closed).
+- **Worker:** the `sentinel.run_tool` task with one event loop per process. Claim, audit,
+  execute, persist and audit. Progress via Redis pub/sub, cooperative cancel, three-layer
+  time limits, `worker_lost` handling and a 1 MB raw-output cap.
+- **Realtime:** `/ws/runs/{id}` relays updates, protected by an Origin check and single-use
+  tickets (T12 done). Vite proxies `/ws`.
+- **API:**
+  - `POST /tools/{id}/runs`
+  - `GET /runs` (filters, keyset paging)
+  - `GET /runs/{id}` (ToolResult plus progress)
+  - `POST /runs/{id}/cancel`
+  - `POST /runs/{id}/ws-ticket`
+- **DNS tool (`dns_lookup`):**
+  - dnspython with explicit resolvers, and IDNA/RFC 1123 domain validation that refuses
+    internal names.
+  - Checks: SPF, DMARC, CAA, dangling CNAMEs, name server redundancy, private-IP exposure
+    and NXDOMAIN, with knowledge YAML.
+  - The worker joins an `egress` network.
+- **Frontend:**
+  - Run forms generated from each tool's JSON Schema, with server 422 errors shown per
+    field.
+  - `useRunStatus` (WebSocket with polling fallback).
+  - Run page: timeline, progress, cancel, structured errors, and findings / raw /
+    parameters tabs.
+  - Run history page with URL-driven filters.
+- **Docs:** ADR 0006 and threat-model rows T41–T45 (T12 done).
+- **Local acceptance (2026-10-02):**
+  - Backend: 404 tests pass (unit plus integration on real Postgres and Redis), with ruff,
+    mypy and bandit clean and `alembic check` reporting no drift. Frontend: 311 tests pass
+    with eslint, prettier and tsc clean.
+  - Live against the dev stack through the Vite proxy:
+    - The example.com run went QUEUED → RUNNING (5/55/75/95%) → COMPLETED over the
+      WebSocket with 5 findings.
+    - A reserved domain was rejected with a structured 422.
+    - Cancelling mid-run ended CANCELLED, and a repeat cancel returned 409.
+    - The run history lists the runs, and the audit chain verified OK with every run
+      audited by api and worker.
+    - Worker logs carry the originating `request_id`.
 
 ## Phase 4 log
 

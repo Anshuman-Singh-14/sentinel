@@ -47,7 +47,7 @@ Networks: `edge` (frontend, api) and `internal` (api, worker, postgres, redis;
 | T9 | T | Stored XSS from tool output | ESLint bans `dangerouslySetInnerHTML`. All data renders as React text; `JsonViewer` never creates links; tested with `<script>`/`javascript:` payloads (ADR 0004) | Done for the shell (P3); re-checked per result viewer |
 | T10 | E | **Pivoting: active tools aimed at Sentinel's own infra** (postgres, redis, api, metadata IPs) | Hard infra denylist the scope policy cannot override, and lab targets on a separate `lab` network | Planned (P6/P7) |
 | T11 | E | SSRF via header checker or redirects; DNS rebinding | SSRF guard: scheme/port allowlist, IP pinning, re-validation on every redirect | Planned (P7) |
-| T12 | S | Cross-Site WebSocket Hijacking | Origin check on connect plus a single-use short-lived WS ticket | Planned (P5) |
+| T12 | S | Cross-Site WebSocket Hijacking | Origin allowlist on the handshake plus a single-use, 30-second, run-bound ticket from a CSRF-checked POST, redeemed with GETDEL (ADR 0006) | Done (P5) |
 | T13 | R | Users deny running scans | Hash-chained, append-only audit log with user, session, IP and request ID on every event (ADR 0003) | Done (P2) |
 | T14 | D | Resource exhaustion (huge scans, uploads, slow targets) | Timeouts and caps everywhere. Celery soft/hard limits and prefetch 1. Per-user quotas | Partial (P0 Celery limits) |
 | T15 | I | Secrets in logs | Mandatory redaction processor on every record, including stdlib loggers, tracebacks and the uvicorn supervisor (ADR 0002) | Done (P1) |
@@ -76,6 +76,11 @@ Networks: `edge` (frontend, api) and `internal` (api, worker, postgres, redis;
 | T38 | I | Client-side tool input (passwords, tokens, secrets, files) leaking to the server, logs or storage | Tools live in their own modules; a static import-graph test bans the API client, network, storage and console APIs; a runtime test drives every tool with all network APIs trapped; input fields disable autocomplete and spellcheck (ADR 0005) | Done (P4) |
 | T39 | T | JWT inspector misleading users: "decoded" read as "verified", or algorithm confusion | Prominent "decoding is not verifying" banner; verification pins the key type to the header's algorithm and refuses public keys as HMAC secrets, `alg: none`, and private keys | Done (P4) |
 | T40 | D | Hostile input freezing the browser (huge paste, pathological password, multi-GB file) | Input caps (1 M chars encoder, 64 KB token, 256 chars to zxcvbn), deferred rendering, chunked file hashing with a 4 GiB cap and cancel | Done (P4) |
+| T41 | I | DNS tool used to enumerate internal infrastructure (resolving `postgres`, `redis`, `*.internal`) | Explicit public upstream resolvers instead of Docker's embedded DNS; single-label, IP-literal and private/reserved-suffix names rejected at validation; PTR only for public IPs | Done (P5) |
+| T42 | T | Tampered or replayed task messages altering what a worker runs | Task carries only the run id; parameters are read from the database and re-validated; compare-and-set claim means a run executes at most once; a redelivered RUNNING run is failed, not re-run | Done (P5) |
+| T43 | D | One account flooding the workers | 20 runs/min per user, max 3 active runs per user, per-tool time limits in three layers, raw output capped at 1 MB | Done (P5) |
+| T44 | E | Active tool sending traffic before any authorisation exists | Fail-closed: every `is_active` tool is refused and audited as a security event until the Phase 6 scope policy | Done (P5, replaced in P6) |
+| T45 | E | Worker egress used to reach internal services | The worker is the only service on the `egress` network; active tools additionally get the infra denylist in Phase 6 (T10) | Partial (P5) |
 
 ## 5. Accepted risks and environment notes
 
