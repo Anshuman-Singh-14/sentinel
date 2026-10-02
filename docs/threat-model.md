@@ -44,7 +44,7 @@ Networks: `edge` (frontend, api) and `internal` (api, worker, postgres, redis;
 | T6 | I | Readiness errors leak DSNs or hosts | `/ready` returns only ok/fail per component and logs only the exception type | Done (P0) |
 | T7 | T | Clickjacking, MIME sniffing | API sends CSP `frame-ancestors 'none'`, `nosniff`, `X-Frame-Options: DENY`. Prod nginx has a strict CSP | Done (P0) |
 | T8 | S | Cross-origin credentialed requests | Explicit CORS allowlist (`*` rejected at startup). Dev uses a same-origin proxy | Done (P0) |
-| T9 | T | Stored XSS from tool output | ESLint bans `dangerouslySetInnerHTML`. Output is rendered as text | Partial (P0 lint, P3+ UI) |
+| T9 | T | Stored XSS from tool output | ESLint bans `dangerouslySetInnerHTML`. All data renders as React text; `JsonViewer` never creates links; tested with `<script>`/`javascript:` payloads (ADR 0004) | Done for the shell (P3); re-checked per result viewer |
 | T10 | E | **Pivoting: active tools aimed at Sentinel's own infra** (postgres, redis, api, metadata IPs) | Hard infra denylist the scope policy cannot override, and lab targets on a separate `lab` network | Planned (P6/P7) |
 | T11 | E | SSRF via header checker or redirects; DNS rebinding | SSRF guard: scheme/port allowlist, IP pinning, re-validation on every redirect | Planned (P7) |
 | T12 | S | Cross-Site WebSocket Hijacking | Origin check on connect plus a single-use short-lived WS ticket | Planned (P5) |
@@ -68,6 +68,11 @@ Networks: `edge` (frontend, api) and `internal` (api, worker, postgres, redis;
 | T30 | T/R | Audit tampering by the app role | INSERT/SELECT-only grant, UPDATE/DELETE/TRUNCATE triggers, hash chain plus verify endpoint and CRITICAL alert. Owner/superuser tampering remains possible; see section 5 | Done (P2) |
 | T31 | D | Memory exhaustion via concurrent Argon2 hashing | Hash concurrency capped at 4 (about 256 MiB); login input capped at 1024 characters, policy at 128; per-IP rate limit | Done (P2) |
 | T32 | I | Secrets or passwords in audit details | Details pass through the redaction processor before hashing; attempted passwords are never recorded; the login username field is length-capped | Done (P2) |
+| T33 | S/I | Open redirect via `/login?next=` used for phishing | `safeRedirectPath` accepts same-origin paths only; protocol-relative, backslash, control-char and overlong values fall back to `/` | Done (P3) |
+| T34 | I | Session cookies sent to another origin by a client bug | API client refuses non-path URLs, `credentials: "same-origin"`, `redirect: "error"` | Done (P3) |
+| T35 | D | Concurrent refreshes from several tabs tripping refresh-reuse detection (self-inflicted session revocation) | Single-flight refresh per tab plus a Web Locks mutex across tabs | Done (P3) |
+| T36 | D | Hostile, huge or deeply nested tool output freezing the browser | `JsonViewer` caps depth, items and string length; the full value stays available through Copy | Done (P3) |
+| T37 | I | Data cached under one identity shown to the next user on a shared browser | Query cache cleared on login, logout and session expiry; rejected passwords cleared from state | Done (P3) |
 
 ## 5. Accepted risks and environment notes
 

@@ -1,0 +1,67 @@
+/** Typed wrappers for each backend endpoint the frontend uses. */
+
+import type {
+  AuditPage,
+  HealthResponse,
+  SecurityAlert,
+  SessionInfo,
+  ToolDescriptor,
+  User,
+  VerifyResponse,
+} from "../../types/api";
+import { api } from "./client";
+
+const V1 = "/api/v1";
+
+export const authApi = {
+  // Login and refresh never trigger the refresh-and-retry path: a 401 from
+  // them is the final answer.
+  login: (username: string, password: string) =>
+    api.post<SessionInfo>(`${V1}/auth/login`, { username, password }, { skipRefresh: true }),
+  logout: () => api.post<void>(`${V1}/auth/logout`, undefined, { skipRefresh: true }),
+  me: (signal?: AbortSignal) => api.get<User>(`${V1}/auth/me`, { signal }),
+  changePassword: (currentPassword: string, newPassword: string) =>
+    api.post<void>(`${V1}/auth/password`, {
+      current_password: currentPassword,
+      new_password: newPassword,
+    }),
+};
+
+export const toolsApi = {
+  list: (signal?: AbortSignal) => api.get<ToolDescriptor[]>(`${V1}/tools`, { signal }),
+};
+
+export const healthApi = {
+  // Short timeout: this drives a status indicator, not a user action.
+  health: (signal?: AbortSignal) =>
+    api.get<HealthResponse>("/health", { signal, timeoutMs: 3000, skipRefresh: true }),
+};
+
+export interface AuditFilters {
+  username?: string;
+  action?: string;
+  outcome?: string;
+  security_only?: boolean;
+  since?: string;
+  until?: string;
+}
+
+export const adminApi = {
+  audit: (filters: AuditFilters, beforeId?: number, signal?: AbortSignal) =>
+    api.get<AuditPage>(`${V1}/admin/audit`, {
+      query: { ...filters, security_only: filters.security_only || undefined, before_id: beforeId },
+      signal,
+    }),
+  verifyAudit: () =>
+    api.post<VerifyResponse>(`${V1}/admin/audit/verify`, undefined, {
+      // Verification walks the whole chain; give it longer than a normal call.
+      timeoutMs: 60_000,
+    }),
+  alerts: (unacknowledgedOnly: boolean, signal?: AbortSignal) =>
+    api.get<SecurityAlert[]>(`${V1}/admin/alerts`, {
+      query: { unacknowledged_only: unacknowledgedOnly || undefined, limit: 50 },
+      signal,
+    }),
+  acknowledgeAlert: (alertId: string) =>
+    api.post<SecurityAlert>(`${V1}/admin/alerts/${encodeURIComponent(alertId)}/acknowledge`),
+};
