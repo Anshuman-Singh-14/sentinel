@@ -1,6 +1,11 @@
 # 05 — Build Phases
 
 Work strictly in order. For each phase: plan → my approval → implement → test → phase report → stop.
+
+> **Approved order change (2026-10-02, ADR 0009):** after Phase 7 the remaining phases are
+> built **12 → 13 → 14 → 8 → 10 → 11 → 9**, so the core demo (playbook → report → polish)
+> is finished before the stretch phases. ADR 0009 lists the dependency checks and what each
+> deferred phase must update when it lands.
 "Done" means every acceptance criterion is met, tests pass, lint/type/bandit are clean, and `docs/PROGRESS.md` is updated.
 
 ---

@@ -90,6 +90,9 @@ Networks: `edge` (frontend, api) and `internal` (api, worker, postgres, redis;
 | T52 | I | Session cookies of scanned sites captured in Sentinel's database | Set-Cookie parsed to name + attributes on receipt; values dropped and raw headers removed; tested | Done (P7) |
 | T53 | E | Allowed domain name pointed (by its DNS owner) at internal addresses | Domain rules vouch for public addresses only; non-global addresses also need a CIDR rule (`internal_via_domain`) | Done (P7) |
 | T54 | T | Certificate validation weakened by IP pinning | SNI and hostname verification use the original name (prototyped with httpcore `sni_hostname`); unverified handshakes only read certificates or headers of already-failing sites | Done (P7) |
+| T55 | E | Code execution or data access through playbook templates | No template engine: strict reference grammar over plain JSON (no attribute access, calls or filters); backward-only references validated at load; size cap | Done (P12) |
+| T56 | E | Playbooks used to launder out-of-scope targets through later steps | Every step is created and executed through the same run service and worker scope check as a manual run; the target is pre-checked at start | Done (P12) |
+| T57 | D | Orchestrator deadlocking the worker pool by waiting on sub-tasks | Steps execute inline in one orchestrator task; Celery limits summed from the steps; shared per-user caps | Done (P12) |
 
 ## 5. Accepted risks and environment notes
 
