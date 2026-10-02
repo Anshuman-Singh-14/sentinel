@@ -122,7 +122,7 @@ jobs:
         run: docker compose --profile test run --rm -T test pytest tests/integration -p no:warnings
       - name: Create first admin via CLI, log in, read the catalogue
         run: |
-          echo "ci-admin-pass-$(python3 -c 'import secrets; print(secrets.token_hex(8))')" > /tmp/pw
+          echo "secure-pass-$(python3 -c 'import secrets; print(secrets.token_hex(8))')" > /tmp/pw
           docker compose exec -T api python -m app.cli create-admin --username ci-admin --password-stdin < /tmp/pw
           code=$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/api/v1/tools)
           test "$code" = 401 || { echo "catalogue without a session returned $code"; exit 1; }
