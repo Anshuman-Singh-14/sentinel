@@ -135,6 +135,13 @@ class RequestContextMiddleware:
         # need the request ID.
         clear_context()
         bind_context(request_id=request_id)
+        # Resolve the client IP once, here, so the access log and the audit
+        # log (which reads request.state.client_ip) always agree.
+        client = scope.get("client")
+        client_ip = resolve_client_ip(
+            client[0] if client else None, headers.get("x-forwarded-for"), self.trusted_proxies
+        )
+        scope.setdefault("state", {})["client_ip"] = client_ip
 
         if scope["type"] == "websocket":
             await self.app(scope, receive, send)
@@ -163,7 +170,7 @@ class RequestContextMiddleware:
                 raise
             await self._send_internal_error(send_with_request_id, request_id)
         finally:
-            self._log_access(scope, status_code, started)
+            self._log_access(scope, status_code, started, client_ip)
 
     @staticmethod
     async def _send_internal_error(send: Send, request_id: str) -> None:
@@ -180,16 +187,12 @@ class RequestContextMiddleware:
         )
         await send({"type": "http.response.body", "body": body})
 
-    def _log_access(self, scope: Scope, status_code: int, started: float) -> None:
+    def _log_access(
+        self, scope: Scope, status_code: int, started: float, client_ip: str | None
+    ) -> None:
         # Log the route *template* (/api/v1/runs/{run_id}), never the raw
         # path or query string: those can carry identifiers or tokens.
         route_path = route_template(scope) or "<unmatched>"
-        client = scope.get("client")
-        client_ip = resolve_client_ip(
-            client[0] if client else None,
-            Headers(scope=scope).get("x-forwarded-for"),
-            self.trusted_proxies,
-        )
         log = logger.debug if route_path in QUIET_ROUTES and status_code < 400 else logger.info
         log(
             "http.request",

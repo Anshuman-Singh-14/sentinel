@@ -22,7 +22,7 @@ STANDARD_CONTEXT_FIELDS = ("request_id", "user_id", "run_id")
 
 
 @lru_cache
-def _process_user() -> str:
+def process_user() -> str:
     # Stdlib only, never a shell (03-logging-audit.md section 2). getuser() can
     # fail for a UID with no passwd entry, so fall back to the numeric UID.
     try:
@@ -41,7 +41,7 @@ class SystemContextProcessor:
             "environment": environment,
             "app_version": __version__,
             "hostname": socket.gethostname(),
-            "process_user": _process_user(),
+            "process_user": process_user(),
         }
 
     def __call__(self, logger: WrappedLogger, method_name: str, event_dict: EventDict) -> EventDict:
