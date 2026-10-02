@@ -40,7 +40,7 @@ from app.core.ratelimit import RateLimiter, raise_if_limited
 from app.core.runs import events
 from app.core.runs.dispatch import Dispatcher
 from app.core.security import scope_service
-from app.db.models import FindingRow, ToolRun
+from app.db.models import FindingRow, PlaybookRun, ToolRun
 from app.db.models._types import utcnow
 from app.engine.base_tool import BaseTool
 from app.engine.schemas import RunStatus, ToolError
@@ -81,8 +81,21 @@ class RunService:
     # --- create ---------------------------------------------------------------------
 
     async def create(
-        self, tool_cls: type[BaseTool[Any]], raw_params: dict[str, Any], principal: Principal
+        self,
+        tool_cls: type[BaseTool[Any]],
+        raw_params: dict[str, Any],
+        principal: Principal,
+        *,
+        playbook_run_id: uuid.UUID | None = None,
     ) -> ToolRun:
+        """Validate, authorise, persist and (unless part of a playbook) dispatch a run.
+
+        Playbook steps go through exactly the same checks (role, parameters,
+        authorised-use acknowledgement, scope) and audit trail as manual
+        runs. The differences: they are not rate-limited individually
+        (starting the playbook was), and they are not dispatched, because the
+        playbook orchestrator executes them in order itself.
+        """
         tool = tool_cls()
         if not role_allows(principal.role, tool.required_role):
             await self.audit.record(
@@ -128,30 +141,8 @@ class RunService:
                 )
                 raise ScopeDenied(decision.reason, details={"reason": decision.code})
 
-        raise_if_limited(
-            await self.limiter.hit(
-                f"runs:user:{principal.user_id}",
-                limit=self.settings.run_rate_limit_per_minute,
-                window_seconds=60,
-            )
-        )
-        raise_if_limited(
-            await self.limiter.hit(
-                f"runs:user-hour:{principal.user_id}",
-                limit=self.settings.run_rate_limit_per_hour,
-                window_seconds=3600,
-            )
-        )
-        active = await self.db.scalar(
-            select(func.count())
-            .select_from(ToolRun)
-            .where(ToolRun.user_id == principal.user_id, ToolRun.status.in_(ACTIVE_STATUSES))
-        )
-        if (active or 0) >= self.settings.max_active_runs_per_user:
-            raise RateLimited(
-                f"You already have {active} runs in progress. Wait for one to finish.",
-                headers={"Retry-After": "10"},
-            )
+        if playbook_run_id is None:
+            await self._enforce_quotas(principal)
 
         run = ToolRun(
             id=uuid7(),
@@ -164,6 +155,7 @@ class RunService:
             user_id=principal.user_id,
             username=principal.username,
             request_id=current_request_id(),
+            playbook_run_id=playbook_run_id,
         )
         self.db.add(run)
         await self.db.flush()
@@ -174,10 +166,16 @@ class RunService:
             resource_type="tool_run",
             resource_id=str(run.id),
             target=target,
-            details={"tool_id": tool.tool_id, "tool_version": tool.version},
+            details={
+                "tool_id": tool.tool_id,
+                "tool_version": tool.version,
+                **({"playbook_run_id": str(playbook_run_id)} if playbook_run_id else {}),
+            },
             session=self.db,
         )
         await self.db.commit()
+        if playbook_run_id is not None:
+            return run  # executed inline by the playbook orchestrator
 
         try:
             run.celery_task_id = self.dispatcher.send(run.id, tool_cls)
@@ -194,6 +192,47 @@ class RunService:
         await self.db.commit()
         logger.info("tool.run.queued", run_id=str(run.id), tool_id=tool.tool_id)
         return run
+
+    async def _enforce_quotas(self, principal: Principal) -> None:
+        raise_if_limited(
+            await self.limiter.hit(
+                f"runs:user:{principal.user_id}",
+                limit=self.settings.run_rate_limit_per_minute,
+                window_seconds=60,
+            )
+        )
+        raise_if_limited(
+            await self.limiter.hit(
+                f"runs:user-hour:{principal.user_id}",
+                limit=self.settings.run_rate_limit_per_hour,
+                window_seconds=3600,
+            )
+        )
+        # One cap for everything a user has in flight: manual runs plus whole
+        # playbooks (a playbook's own steps are not counted twice).
+        manual = await self.db.scalar(
+            select(func.count())
+            .select_from(ToolRun)
+            .where(
+                ToolRun.user_id == principal.user_id,
+                ToolRun.status.in_(ACTIVE_STATUSES),
+                ToolRun.playbook_run_id.is_(None),
+            )
+        )
+        playbooks = await self.db.scalar(
+            select(func.count())
+            .select_from(PlaybookRun)
+            .where(
+                PlaybookRun.user_id == principal.user_id,
+                PlaybookRun.status.in_(ACTIVE_STATUSES),
+            )
+        )
+        active = (manual or 0) + (playbooks or 0)
+        if active >= self.settings.max_active_runs_per_user:
+            raise RateLimited(
+                f"You already have {active} runs in progress. Wait for one to finish.",
+                headers={"Retry-After": "10"},
+            )
 
     # --- read -------------------------------------------------------------------------
 

@@ -10,13 +10,18 @@
 | 5 | Task infra & DNS | Complete (merged, PR #14) | 404 backend + 311 frontend tests; live DNS run verified; ADR 0006 |
 | 6 | Scope policy & port scanner | Complete (merged, PR #15) | 498 backend + 319 frontend tests; live lab scan verified; ADR 0007 |
 | 7 | Header & TLS checker | Complete (merged, PR #16) | 570 backend tests; fixture servers + live lab verified; ADR 0008 |
-| 8 | Threat intel | Not started | Stretch scope: two providers fully, third optional |
-| 9 | Network diagnostics | Not started | Stretch. Traceroute best-effort on Docker Desktop |
-| 10 | Log analyzer | Not started | Stretch |
-| 11 | File integrity monitor | Not started | Stretch. Demo on a named volume, not a Windows bind mount |
-| 12 | Playbook engine | Not started | |
-| 13 | Reporting & export | Not started | |
-| 14 | Observability & polish | Not started | Observability profile optional |
+| 8 | Threat intel | Not started (build 4th) | Stretch scope: two providers fully, third optional. Must accept the playbook's `indicators` reference (ADR 0009) |
+| 9 | Network diagnostics | Not started (build 7th) | Stretch. Traceroute best-effort on Docker Desktop |
+| 10 | Log analyzer | Not started (build 5th) | Stretch |
+| 11 | File integrity monitor | Not started (build 6th) | Stretch. Demo on a named volume, not a Windows bind mount. Add `beat` to the prod profile |
+| 12 | Playbook engine | Complete locally, awaiting CI | Built 1st of the remaining phases; 618 backend + 327 frontend tests; ADR 0009 |
+| 13 | Reporting & export | Not started (build 2nd) | |
+| 14 | Observability & polish | Not started (build 3rd) | Observability profile optional |
+
+## Build order (approved 2026-10-02, ADR 0009)
+
+Remaining phases: **12 → 13 → 14 → 8 → 10 → 11 → 9**. Core demo first, stretch after.
+ADR 0009 has the dependency check and the checklist each deferred phase must follow.
 
 ## MVP cut line
 
@@ -52,6 +57,49 @@ containers. See `docs/adr/0001-architecture-and-stack.md`.
   test credentials, now allowlisted as exact literals in `.gitleaks.toml`.
 - LICENSE copyright holder (`Anshuman-Singh-14`) needs confirming by the repo owner.
 - The repo lives in OneDrive. Moving it to a non-synced path is recommended.
+
+## Phase 12 log
+
+- **Order:** built first of the remaining phases. The approved reorder is recorded in ADR 0009,
+  CLAUDE.md and the phases spec.
+- **Definitions:**
+  - YAML validated by Pydantic: typed inputs, defaults referencing earlier inputs, steps with
+    `on_failure` and `optional`.
+  - Load-time reference checks (backward-only, known inputs, unique ids).
+  - Shipped: **Web Defensive Audit** (DNS → web port scan → header/TLS → threat intel, the
+    last optional until Phase 8).
+- **Safe references:** `{{ inputs.x }}` and `{{ steps.id.field[n] }}` over plain JSON only;
+  no template engine, no attribute access, size-capped.
+- **Orchestrator:** one Celery task runs the steps sequentially and in-process.
+  - Each step is a normal `ToolRun` created through `RunService` (same checks and audit) and
+    executed by `execute_run`, with the worker scope check on every step.
+  - `on_failure` stop/continue, optional skip, reference errors, cancellation propagated into
+    the running tool, redelivery handling, time limits summed from the steps.
+- **Results:** unified, de-duplicated findings with provenance (`also_reported_by`), and a
+  risk summary with headline and partial-coverage flag.
+- **Live updates:** `playbook.update` events relayed over `/ws/playbooks/{id}`. The relay is
+  shared with runs, and tickets now carry a kind.
+- **Quotas:** playbooks count against the same per-user caps as manual runs; their steps are
+  not counted twice.
+- **Migration 0005:** `playbook_runs`, `playbook_steps`, `tool_runs.playbook_run_id`, with
+  explicit grants (no DELETE).
+- **Frontend:**
+  - Playbooks page: steps with availability and active badges, a schema-generated input form
+    behind the authorised-use gate, recent runs.
+  - Run page: live step timeline with progress, cancel, step errors, links to tool runs,
+    unified findings with the source step, risk summary.
+- **Docs:** ADR 0009.
+- **Local acceptance (2026-10-02):**
+  - Backend: 618 tests pass, with ruff, mypy and bandit clean, `alembic check` reporting no
+    drift and the migration round trip clean. Frontend: 327 tests pass with eslint, prettier
+    and tsc clean.
+  - Live against the lab:
+    - The audit of `lab-https` streamed QUEUED → RUNNING 0/25/50/75% → COMPLETED.
+    - DNS failed with a clear reason ("Enter a fully qualified domain name") and the audit
+      continued; intel was skipped as not installed.
+    - 11 unified findings, led by the HIGH self-signed certificate.
+    - The cancel against a slow target ended CANCELLED, and `8.8.8.8` was refused at start
+      (`out_of_scope`).
 
 ## Phase 7 log
 

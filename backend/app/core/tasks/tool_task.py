@@ -38,7 +38,7 @@ from app.core.tasks.loop import reset_loop, run_async
 from app.db.models import FindingRow, ToolRun, User
 from app.db.models._types import utcnow
 from app.db.session import get_sessionmaker
-from app.engine.base_tool import ToolContext
+from app.engine.base_tool import ProgressCallback, ToolContext
 from app.engine.registry import registry
 from app.engine.runner import execute_tool
 from app.engine.schemas import RunStatus, ToolError, ToolResult
@@ -188,7 +188,14 @@ def _scope_checker(run: ToolRun, actor: Actor, settings: Any) -> Any:
     return check
 
 
-async def execute_run(run_id: uuid.UUID) -> str:
+async def execute_run(
+    run_id: uuid.UUID, *, progress_listener: ProgressCallback | None = None
+) -> str:
+    """Claim, execute, persist and audit one tool run.
+
+    ``progress_listener`` lets a caller (the playbook orchestrator) observe
+    the tool's progress without touching the run's own bookkeeping.
+    """
     _ensure_tools()
     from app.config import get_settings
 
@@ -266,6 +273,8 @@ async def execute_run(run_id: uuid.UUID) -> str:
                     last_progress_write = now
                     await db.commit()  # flushes the two changed attributes
                 await _publish(run)
+            if progress_listener is not None:
+                await progress_listener(pct, message)
 
         async def should_cancel() -> bool:
             nonlocal last_cancel_check, cancelled

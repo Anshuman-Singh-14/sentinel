@@ -5,6 +5,8 @@ import { RequireAuth, RequireRole } from "../features/auth/guards";
 import { LoginPage } from "../features/auth/LoginPage";
 import { AuditPage } from "../features/audit/AuditPage";
 import { DashboardPage } from "../features/dashboard/DashboardPage";
+import { PlaybookRunPage } from "../features/playbooks/PlaybookRunPage";
+import { PlaybooksPage } from "../features/playbooks/PlaybooksPage";
 import { RunPage } from "../features/runs/RunPage";
 import { RunsPage } from "../features/runs/RunsPage";
 import { ScopePage } from "../features/scope/ScopePage";
@@ -30,6 +32,8 @@ export const routes: RouteObject[] = [
           { index: true, element: <DashboardPage /> },
           { path: "tools/:toolId", element: <ToolPage /> },
           { path: "runs", element: <RunsPage /> },
+          { path: "playbooks", element: <PlaybooksPage /> },
+          { path: "playbook-runs/:playbookRunId", element: <PlaybookRunPage /> },
           { path: "runs/:runId", element: <RunPage /> },
           // One route per local tool, generated from the manifest. Each is
           // code-split; the router loads the chunk before navigating.

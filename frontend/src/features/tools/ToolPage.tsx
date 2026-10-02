@@ -15,13 +15,16 @@ import { SchemaForm } from "./SchemaForm";
 import type { ObjectSchema } from "./SchemaForm";
 import { useToolCatalogue } from "./useToolCatalogue";
 
-/** Map a 422 from the API (`loc: ["params", field]`) to per-field messages. */
-export function fieldErrors(error: unknown): Record<string, string> {
+/**
+ * Map a 422 from the API to per-field messages. Tool parameters arrive as
+ * `loc: ["params", field]`, playbook inputs as `loc: ["inputs", field]`.
+ */
+export function fieldErrors(error: unknown, root = "params"): Record<string, string> {
   if (!(error instanceof ApiError) || error.code !== "validation_failed") return {};
   const errors = (error.details.errors ?? []) as Array<{ loc?: unknown[]; msg?: string }>;
   const out: Record<string, string> = {};
   for (const e of errors) {
-    const field = e.loc?.[0] === "params" ? e.loc[1] : undefined;
+    const field = e.loc?.[0] === root ? e.loc[1] : undefined;
     if (typeof field === "string" && e.msg) out[field] = e.msg.replace(/^Value error, /, "");
   }
   return out;

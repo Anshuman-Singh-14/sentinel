@@ -25,7 +25,9 @@ _settings = get_settings()
 
 # Task modules are listed rather than imported here: tool_task imports this
 # module, so a direct import would be circular. Workers import them at startup.
-celery_app = Celery("sentinel", include=["app.core.tasks.tool_task"])
+celery_app = Celery(
+    "sentinel", include=["app.core.tasks.tool_task", "app.core.tasks.playbook_task"]
+)
 celery_app.conf.update(
     broker_url=_settings.redis_url.get_secret_value(),
     result_backend=_settings.redis_url.get_secret_value(),

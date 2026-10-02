@@ -72,6 +72,10 @@ class ToolRun(Base):
     username: Mapped[str] = mapped_column(String(64))
     request_id: Mapped[str | None] = mapped_column(String(64))
     celery_task_id: Mapped[str | None] = mapped_column(String(64))
+    # Set when the run is a step of a playbook run (Phase 12).
+    playbook_run_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("playbook_runs.id", ondelete="SET NULL"), index=True
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), default=utcnow, index=True

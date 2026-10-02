@@ -138,7 +138,8 @@ def db(migrated: None) -> Iterator[Database]:
         [
             ("ALTER TABLE audit_events DISABLE TRIGGER USER", {}),
             (
-                "TRUNCATE audit_events, findings, tool_runs, scope_entries,"
+                "TRUNCATE audit_events, findings, playbook_steps, playbook_runs, tool_runs,"
+                " scope_entries,"
                 " authorization_acknowledgements, sessions, users, security_alerts"
                 " RESTART IDENTITY",
                 {},
