@@ -1,12 +1,22 @@
 import { useEffect, useState } from "react";
 import { Outlet } from "react-router";
 
+import { prefetchLocalTools } from "../../features/tools/registry";
 import { Sidebar } from "./Sidebar";
 import { TopBar } from "./TopBar";
 
 /** Authenticated layout: sidebar navigation, top bar and the routed page. */
 export function AppShell() {
   const [menuOpen, setMenuOpen] = useState(false);
+
+  // Warm the local tools' chunks once the browser is idle, so they still open
+  // if the connection drops later.
+  useEffect(() => {
+    const idle = window.requestIdleCallback ?? ((cb: () => void) => window.setTimeout(cb, 2000));
+    const cancel = window.cancelIdleCallback ?? window.clearTimeout;
+    const handle = idle(() => prefetchLocalTools());
+    return () => cancel(handle);
+  }, []);
 
   useEffect(() => {
     if (!menuOpen) return;

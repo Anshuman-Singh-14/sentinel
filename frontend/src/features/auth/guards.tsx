@@ -47,7 +47,9 @@ export function RequireAuth() {
       </FullPageMessage>
     );
   }
-  if (isError) {
+  // A failed *background* refetch keeps the last known user: going offline
+  // must not lock the user out of the local tools, which need no server.
+  if (isError && !user) {
     // The API is down or misbehaving. That is not "logged out", so do not
     // bounce to the login page; say what happened and offer a retry.
     return (

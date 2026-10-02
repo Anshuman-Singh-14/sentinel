@@ -13,6 +13,12 @@ const proxied = ["/api", "/health", "/ready"];
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  build: {
+    // The zxcvbn English dictionaries are one ~1.2 MB lazy chunk, loaded only
+    // for the password analyzer (and prefetched when idle). The main bundle
+    // stays far below this.
+    chunkSizeWarningLimit: 1300,
+  },
   server: {
     port: 5173,
     strictPort: true,
@@ -25,5 +31,7 @@ export default defineConfig({
     setupFiles: ["./src/test/setup.ts"],
     restoreMocks: true,
     unstubGlobals: true,
+    // Password tests load the real zxcvbn dictionaries; leave headroom on slow CI runners.
+    testTimeout: 15_000,
   },
 });

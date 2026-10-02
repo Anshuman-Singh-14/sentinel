@@ -164,9 +164,10 @@ describe("shell and navigation", () => {
     );
     expect(within(nav).getByText("Diagnostics")).toBeInTheDocument();
     expect(within(nav).getByText(/runs in your browser only/i)).toBeInTheDocument();
-    // Local tools are not shipped yet: listed, but not links.
-    const password = within(nav).getByText("Password Analyzer").closest("[aria-disabled]");
-    expect(password).toHaveAttribute("aria-disabled", "true");
+    expect(within(nav).getByRole("link", { name: /password analyzer/i })).toHaveAttribute(
+      "href",
+      "/local/password",
+    );
   });
 
   it("shows API status and version in the status area", async () => {
@@ -194,6 +195,38 @@ describe("shell and navigation", () => {
   it("shows not-found for unknown tools and routes", async () => {
     signedIn();
     renderApp("/tools/nope");
+    expect(await screen.findByRole("heading", { name: "Not found" })).toBeInTheDocument();
+  });
+});
+
+describe("local tools in the shell", () => {
+  it("lazy-loads a local tool route", async () => {
+    signedIn();
+    renderApp("/local/encoder");
+    expect(await screen.findByRole("heading", { name: "Encoder / Decoder" })).toBeInTheDocument();
+    expect(screen.getByText("Runs locally — nothing leaves your browser")).toBeInTheDocument();
+  });
+
+  it("keeps a signed-in user in the app when a background refetch fails (offline)", async () => {
+    const user = makeUser();
+    let online = true;
+    signedIn(user, {
+      "GET /api/v1/auth/me": () => {
+        if (!online) throw new TypeError("Failed to fetch");
+        return jsonResponse(user);
+      },
+    });
+    const { client } = renderApp("/local/hash");
+    expect(await screen.findByRole("heading", { name: /hash generator/i })).toBeInTheDocument();
+    online = false;
+    await client.refetchQueries({ queryKey: ["auth", "me"] });
+    expect(screen.queryByText(/cannot reach sentinel/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /hash generator/i })).toBeInTheDocument();
+  });
+
+  it("shows not-found for an unknown local tool", async () => {
+    signedIn();
+    renderApp("/local/nope");
     expect(await screen.findByRole("heading", { name: "Not found" })).toBeInTheDocument();
   });
 });
