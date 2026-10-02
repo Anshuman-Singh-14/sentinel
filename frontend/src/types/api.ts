@@ -207,3 +207,28 @@ export interface RunEvent {
   max_severity: Severity | null;
   ts: string;
 }
+
+// --- scope policy (Phase 6) -----------------------------------------------------
+
+export interface ScopeRule {
+  id: string | null;
+  kind: "cidr" | "domain";
+  value: string;
+  description: string;
+  source: "builtin" | "admin";
+  enabled: boolean;
+  created_at?: string | null;
+}
+
+export interface ScopeView {
+  rules: ScopeRule[];
+  /** Admin view only. */
+  hard_deny: string[] | null;
+}
+
+export interface Acknowledgement {
+  acknowledged: boolean;
+  version: number;
+  statement: string;
+  acknowledged_at: string | null;
+}

@@ -7,6 +7,7 @@ import { AuditPage } from "../features/audit/AuditPage";
 import { DashboardPage } from "../features/dashboard/DashboardPage";
 import { RunPage } from "../features/runs/RunPage";
 import { RunsPage } from "../features/runs/RunsPage";
+import { ScopePage } from "../features/scope/ScopePage";
 import { LOCAL_TOOLS, localToolPath } from "../features/tools/registry";
 import { ToolPage } from "../features/tools/ToolPage";
 import { AppShell } from "./layout/AppShell";
@@ -40,7 +41,10 @@ export const routes: RouteObject[] = [
           {
             path: "admin",
             element: <RequireRole role="admin" />,
-            children: [{ path: "audit", element: <AuditPage /> }],
+            children: [
+              { path: "audit", element: <AuditPage /> },
+              { path: "scope", element: <ScopePage /> },
+            ],
           },
           { path: "*", element: <NotFoundPage /> },
         ],

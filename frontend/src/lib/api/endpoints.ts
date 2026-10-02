@@ -1,10 +1,13 @@
 /** Typed wrappers for each backend endpoint the frontend uses. */
 
 import type {
+  Acknowledgement,
   AuditPage,
   RunDetail,
   RunPage,
   RunStatus,
+  ScopeRule,
+  ScopeView,
   HealthResponse,
   SecurityAlert,
   SessionInfo,
@@ -90,4 +93,18 @@ export const runsApi = {
     api.post<{ ticket: string; expires_in: number }>(
       `${V1}/runs/${encodeURIComponent(runId)}/ws-ticket`,
     ),
+};
+
+export const scopeApi = {
+  get: (signal?: AbortSignal) => api.get<ScopeView>(`${V1}/scope`, { signal }),
+  acknowledgement: (signal?: AbortSignal) =>
+    api.get<Acknowledgement>(`${V1}/scope/acknowledgement`, { signal }),
+  acknowledge: (version: number) =>
+    api.post<Acknowledgement>(`${V1}/scope/acknowledgement`, { statement_version: version }),
+  adminGet: (signal?: AbortSignal) => api.get<ScopeView>(`${V1}/admin/scope`, { signal }),
+  add: (kind: ScopeRule["kind"], value: string, description: string) =>
+    api.post<ScopeRule>(`${V1}/admin/scope`, { kind, value, description }),
+  setEnabled: (id: string, enabled: boolean) =>
+    api.patch<ScopeRule>(`${V1}/admin/scope/${encodeURIComponent(id)}`, { enabled }),
+  remove: (id: string) => api.delete<void>(`${V1}/admin/scope/${encodeURIComponent(id)}`),
 };
