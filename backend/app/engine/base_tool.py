@@ -28,6 +28,10 @@ RawOutput = dict[str, Any]
 
 ProgressCallback = Callable[[int, str], Awaitable[None]]
 CancelCheck = Callable[[], Awaitable[bool]]
+# Scope check for a host the tool discovers mid-run (e.g. a redirect target).
+# Returns the approved addresses, or raises ScopeDenied. Provided by the
+# framework for active tools; the decision and audit happen outside the tool.
+ScopeCheck = Callable[[str], Awaitable[tuple[str, ...]]]
 
 _TOOL_ID_RE = re.compile(r"^[a-z][a-z0-9_]{1,63}$")
 _SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+$")
@@ -54,6 +58,11 @@ class ToolContext:
     progress_callback: ProgressCallback = _no_progress
     cancel_check: CancelCheck = _never_cancelled
     errors: list[ToolError] = field(default_factory=list)
+    # For active tools: the addresses the scope guard checked and approved.
+    # Tools connect to these and never re-resolve the target name, so DNS
+    # cannot change between "checked" and "connected" (rebinding).
+    authorized_addresses: tuple[str, ...] = ()
+    scope_check: ScopeCheck | None = None
 
     async def report_progress(self, pct: int, message: str) -> None:
         await self.progress_callback(max(0, min(100, pct)), message)
@@ -122,3 +131,11 @@ class BaseTool[ParamsT: BaseModel](ABC):
     def target_of(self, params: ParamsT) -> str | None:
         """The human-readable target recorded on the result (host, URL...)."""
         return None
+
+    def scope_host(self, params: ParamsT) -> str | None:
+        """The host the scope policy must approve (defaults to ``target_of``).
+
+        Differs when the target is a URL: the URL is shown to the user, the
+        host is what gets resolved and checked.
+        """
+        return self.target_of(params)

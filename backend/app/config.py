@@ -99,8 +99,114 @@ class Settings(LoggingSettings):
     # Every outbound check has a timeout (CLAUDE.md rule 7).
     readiness_timeout_seconds: float = Field(default=2.0, gt=0, le=10)
 
+    # --- Authentication and sessions (03-logging-audit.md section 1, ADR 0003) ---
+    # Short-lived access token: bounds how long a stolen cookie stays useful.
+    access_token_ttl_minutes: int = Field(default=15, ge=1, le=60)
+    # The refresh token expires after this much inactivity...
+    refresh_token_idle_hours: int = Field(default=12, ge=1, le=168)
+    # ...and every session ends after this long, however active it is.
+    session_absolute_hours: int = Field(default=24, ge=1, le=720)
+    # Secure cookies are only sent over HTTPS (browsers also accept them on
+    # http://localhost). Disabling is a dev-only escape hatch for Safari and is
+    # refused in production.
+    cookie_secure: bool = True
+
+    # Account lockout: after N consecutive failures the account locks, with the
+    # duration doubling on each further failure up to the maximum.
+    login_max_failures: int = Field(default=5, ge=1, le=100)
+    lockout_base_seconds: int = Field(default=60, ge=1, le=3600)
+    lockout_max_seconds: int = Field(default=900, ge=1, le=86_400)
+    # Per-IP limit on login and refresh attempts. Stops password spraying
+    # across many accounts, which per-account lockout alone cannot.
+    auth_rate_limit_per_minute: int = Field(default=10, ge=1, le=1000)
+
+    # Security alerting (03-logging-audit.md section 7).
+    alert_failed_login_threshold: int = Field(default=5, ge=1, le=1000)
+    alert_window_minutes: int = Field(default=10, ge=1, le=1440)
+
+    # Tool runs (Phase 5). Quotas bound how much load one account can create.
+    run_rate_limit_per_minute: int = Field(default=20, ge=1, le=1000)
+    max_active_runs_per_user: int = Field(default=3, ge=1, le=100)
+    # Raw tool output stored per run; larger output is replaced by a notice.
+    max_raw_output_bytes: int = Field(default=1_000_000, ge=10_000, le=20_000_000)
+    # Single-use WebSocket tickets (threat model T12).
+    ws_ticket_ttl_seconds: int = Field(default=30, ge=5, le=300)
+
+    # DNS tool. Explicit upstream resolvers instead of the container's resolver:
+    # Docker's embedded DNS (127.0.0.11) would answer for internal service names
+    # (postgres, redis), exposing infrastructure through the tool. Empty means
+    # use the system resolver (for networks that block public DNS).
+    dns_nameservers: Annotated[list[str], NoDecode] = Field(
+        default_factory=lambda: ["1.1.1.1", "9.9.9.9"]
+    )
+    dns_timeout_seconds: float = Field(default=3.0, gt=0, le=30)
+    dns_lifetime_seconds: float = Field(default=6.0, gt=0, le=60)
+
+    # Scope policy (Phase 6, ADR 0007). Infra subnets are always denied to
+    # active tools; the default allow list is loopback plus the lab network.
+    scope_infra_subnets: Annotated[list[str], NoDecode] = Field(
+        default_factory=lambda: ["10.231.0.0/24", "10.231.1.0/24", "10.231.2.0/24"]
+    )
+    scope_default_allow: Annotated[list[str], NoDecode] = Field(
+        default_factory=lambda: ["127.0.0.0/8", "::1/128", "10.231.10.0/24"]
+    )
+    # Bump to make every user re-acknowledge after the statement text changes.
+    authorization_statement_version: int = Field(default=1, ge=1)
+    run_rate_limit_per_hour: int = Field(default=200, ge=1, le=10_000)
+
+    # Port scanner.
+    port_scan_max_ports: int = Field(default=1024, ge=1, le=65_535)
+    port_scan_concurrency: int = Field(default=100, ge=1, le=500)
+    port_scan_connect_timeout_seconds: float = Field(default=1.0, gt=0, le=10)
+    port_scan_banner_timeout_seconds: float = Field(default=2.0, gt=0, le=10)
+
+    # Header & TLS checker (SSRF guard: 04-security.md section 3).
+    web_check_allowed_ports: Annotated[list[int], NoDecode] = Field(
+        default_factory=lambda: [80, 443, 8000, 8008, 8080, 8443, 8888]
+    )
+    web_check_max_redirects: int = Field(default=5, ge=0, le=10)
+    web_check_timeout_seconds: float = Field(default=10.0, gt=0, le=60)
+    web_check_max_body_bytes: int = Field(default=262_144, ge=1024, le=5_000_000)
+
+    # NVD CVE API 2.0. The key only raises the rate limit (5 -> 50 requests per
+    # 30 s); without one the scanner still works, just with slower enrichment.
+    nvd_api_key: SecretStr | None = None
+    nvd_base_url: str = "https://services.nvd.nist.gov/rest/json/cves/2.0"
+    nvd_timeout_seconds: float = Field(default=15.0, gt=0, le=60)
+    nvd_cache_hours: int = Field(default=24, ge=1, le=720)
+
     _split_cors = field_validator("cors_origins", mode="before")(_split_csv)
     _split_proxies = field_validator("trusted_proxies", mode="before")(_split_csv)
+    _split_nameservers = field_validator("dns_nameservers", mode="before")(_split_csv)
+    _split_infra = field_validator("scope_infra_subnets", mode="before")(_split_csv)
+    _split_allow = field_validator("scope_default_allow", mode="before")(_split_csv)
+    _split_web_ports = field_validator("web_check_allowed_ports", mode="before")(_split_csv)
+
+    @field_validator("web_check_allowed_ports")
+    @classmethod
+    def _valid_ports(cls, value: list[int]) -> list[int]:
+        if not value or any(not 1 <= p <= 65535 for p in value):
+            raise ValueError("WEB_CHECK_ALLOWED_PORTS must list ports between 1 and 65535")
+        return value
+
+    @field_validator("scope_infra_subnets", "scope_default_allow")
+    @classmethod
+    def _valid_cidrs(cls, value: list[str]) -> list[str]:
+        for entry in value:
+            ipaddress.ip_network(entry, strict=False)
+        return value
+
+    @field_validator("nvd_api_key", mode="before")
+    @classmethod
+    def _empty_key_is_none(cls, value: object) -> object:
+        return None if value == "" else value
+
+    @field_validator("dns_nameservers")
+    @classmethod
+    def _nameservers_are_ips(cls, value: list[str]) -> list[str]:
+        for entry in value:
+            ipaddress.ip_address(entry)  # raises ValueError if not an IP literal
+        return value
 
     @field_validator("cors_origins")
     @classmethod
@@ -117,6 +223,14 @@ class Settings(LoggingSettings):
         for entry in value:
             ipaddress.ip_network(entry, strict=False)  # raises ValueError if invalid
         return value
+
+    @model_validator(mode="after")
+    def _secure_cookies_in_production(self) -> Self:
+        if self.environment == "production" and not self.cookie_secure:
+            raise ValueError("COOKIE_SECURE=false is not allowed in production")
+        if self.lockout_max_seconds < self.lockout_base_seconds:
+            raise ValueError("LOCKOUT_MAX_SECONDS must be >= LOCKOUT_BASE_SECONDS")
+        return self
 
     @property
     def trusted_proxy_networks(self) -> list[ipaddress.IPv4Network | ipaddress.IPv6Network]:

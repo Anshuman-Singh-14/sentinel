@@ -118,9 +118,33 @@ jobs:
                       return
                   raise SystemExit('sentinel_app was able to run DDL')
           asyncio.run(main())"
+      - name: Integration tests (real Postgres and Redis, separate test database)
+        run: docker compose --profile test run --rm -T test pytest tests/integration -p no:warnings
+      - name: Create first admin via CLI, log in, read the catalogue
+        run: |
+          echo "secure-pass-$(python3 -c 'import secrets; print(secrets.token_hex(8))')" > /tmp/pw
+          docker compose exec -T api python -m app.cli create-admin --username ci-admin --password-stdin < /tmp/pw
+          code=$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/api/v1/tools)
+          test "$code" = 401 || { echo "catalogue without a session returned $code"; exit 1; }
+          python3 - <<'EOF'
+          import http.cookiejar, json, urllib.request
+          password = open("/tmp/pw").read().strip()
+          jar = http.cookiejar.CookieJar()
+          opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+          request = urllib.request.Request(
+              "http://127.0.0.1:8000/api/v1/auth/login",
+              data=json.dumps({"username": "ci-admin", "password": password}).encode(),
+              headers={"Content-Type": "application/json"},
+          )
+          with opener.open(request, timeout=10) as response:
+              assert response.status == 200, response.status
+              cookies = response.headers.get_all("Set-Cookie")
+          assert any(c.startswith("__Host-sentinel_access=") and "HttpOnly" in c for c in cookies)
+          print("login OK")
+          EOF
       - name: API and worker logs are JSON with request_id on every line
         run: |
-          curl -fsS -H "X-Request-ID: ci-check-001" http://127.0.0.1:8000/api/v1/tools > /dev/null
+          curl -sS -o /dev/null -H "X-Request-ID: ci-check-001" http://127.0.0.1:8000/api/v1/tools
           docker compose logs --no-log-prefix api worker | python3 -c "
           import json, sys
           lines = [json.loads(l) for l in sys.stdin if l.strip()]
