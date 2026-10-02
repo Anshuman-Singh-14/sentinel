@@ -6,7 +6,7 @@
 | 1 | Core backend & logging | Complete | 205 backend tests; JSON logs + redaction; Alembic baseline; echo tool |
 | 2 | Identity, RBAC & audit | Complete | 308 backend tests (267 unit + 41 integration); merged (PR #11) |
 | 3 | Frontend shell | Complete locally, awaiting CI | 129 vitest tests; branch `feat/phase-3-frontend-shell`; audit viewer UI included |
-| 4 | Client-side utilities | Not started | |
+| 4 | Client-side utilities | Complete locally, awaiting CI | 289 vitest tests; branch `feat/phase-4-client-utilities` stacked on Phase 3 |
 | 5 | Task infra & DNS | Not started | ADR needed: async tools inside Celery (event loop per process) |
 | 6 | Scope policy & port scanner | Not started | Include the infra hard denylist + `lab` network |
 | 7 | Header & TLS checker | Not started | Prototype httpx IP pinning with `sni_hostname` first |
@@ -36,6 +36,10 @@ containers. See `docs/adr/0001-architecture-and-stack.md`.
   records `audit.exported`. Deferred to Phase 13 with the other exporters.
 - After a frontend dependency change, refresh the `frontend_node_modules` volume:
   `docker compose exec frontend npm ci` (rebuilding the image alone does not).
+- Branch `feat/phase-4-client-utilities` is stacked on `feat/phase-3-frontend-shell`. Merge
+  Phase 3 first, then rebase Phase 4 onto `main`.
+- Password analyzer: the optional HIBP k-anonymity check (spec "optional future") is not
+  implemented; it would be the only network call in the local tools.
 - Phase 5: WebSocket auth (T12) and `useRunStatus` build on the Phase 3 API client.
 - Existing dev volumes need the test DB once:
   `docker compose exec postgres sh /docker-entrypoint-initdb.d/02-test-db.sh`.
@@ -44,6 +48,40 @@ containers. See `docs/adr/0001-architecture-and-stack.md`.
   already-open Postgres 18 / Redis 8 / Node 26 PRs on GitHub.
 - LICENSE copyright holder (`Anshuman-Singh-14`) needs confirming by the repo owner.
 - The repo lives in OneDrive. Moving it to a non-synced path is recommended.
+
+## Phase 4 log
+
+- **Tools** (each one is pure logic, a unit test and a lazy-loaded component under
+  `src/features/tools/local/`):
+  - **Password analyzer:** charset entropy vs the zxcvbn estimate with an explanation of the
+    gap, pattern explanations, crack-time ranges for three named scenarios, and
+    recommendations.
+  - **JWT inspector:** decode with clear errors, timeline, findings on the backend severity
+    scale, and local Web Crypto verification for HS, RS, PS, ES and EdDSA. Algorithm
+    confusion and private keys are refused.
+  - **Hash tool:** SHA-256/384/512, plus SHA-1 and MD5 labelled legacy, for text and streamed
+    files with progress and cancel. Constant-time checksum comparison.
+  - **Encoder/decoder:** Base64, Base64URL, URL and hex with positioned errors, auto-detect
+    suggestions, a round-trip check and an "encoding is not encryption" banner.
+- **Shared:** a local-only badge pinned to the top of every tool, explainer panels, the
+  encoding / hashing / encryption comparison table, and `LocalFinding`.
+- **Isolation proof:**
+  - A static import-graph test bans the API client, network, storage and console APIs. A
+    mutation check confirmed it fails when a `fetch` is planted.
+  - A runtime test drives every tool with all network APIs trapped and the browser marked
+    offline.
+- **Offline:** tool chunks and dictionaries are prefetched when the browser is idle, and
+  `RequireAuth` keeps the cached user when a background refetch fails.
+- **Dependencies:** `@zxcvbn-ts/core` 4.2.0, `@zxcvbn-ts/language-common` 4.1.3,
+  `@zxcvbn-ts/language-en` 4.1.1, `@noble/hashes` 2.4.0. See ADR 0005 for why Web Crypto
+  alone was not enough.
+- **Docs:** ADR 0005 and threat-model rows T38–T40.
+- **Local acceptance (2026-10-02):**
+  - 289 vitest tests pass on the host and in the container; eslint, prettier and tsc are
+    clean; `npm audit` reports 0 vulnerabilities.
+  - The production build has no `eval` or `new Function`, the main bundle is unchanged
+    (~412 kB), and the dictionaries are lazy chunks.
+  - Vite transforms every new module.
 
 ## Phase 3 log
 
