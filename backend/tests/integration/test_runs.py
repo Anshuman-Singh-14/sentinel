@@ -246,14 +246,14 @@ def test_unknown_tool(client: TestClient, analyst: Any, dispatcher: Captured) ->
     assert response.json()["error"]["code"] == "tool_not_found"
 
 
-def test_active_tools_are_denied_until_scope_policy_exists(
+def test_active_tools_require_the_authorisation_acknowledgement(
     client: TestClient, db: Database, analyst: Any, dispatcher: Captured
 ) -> None:
+    # Phase 6 replaced the blanket refusal with acknowledgement + scope checks
+    # (tests/integration/test_scope.py covers both in depth).
     response = start(client, "it_active")
     assert response.status_code == 403
-    assert response.json()["error"]["code"] == "scope_denied"
-    [event] = db.audit("tool.run.denied_scope")
-    assert event["is_security_event"] is True
+    assert response.json()["error"]["code"] == "authorization_required"
     assert dispatcher.sent == []
     assert db.execute("SELECT count(*) AS n FROM tool_runs")[0]["n"] == 0
 
