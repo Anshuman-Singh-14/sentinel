@@ -1,4 +1,12 @@
-import { History, LayoutDashboard, Lock, ScrollText, ShieldHalf, UserCog } from "lucide-react";
+import {
+  Crosshair,
+  History,
+  LayoutDashboard,
+  Lock,
+  ScrollText,
+  ShieldHalf,
+  UserCog,
+} from "lucide-react";
 import { NavLink } from "react-router";
 
 import { Badge, cn, Spinner } from "../../components/ui";
@@ -92,7 +100,10 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const adminGroup: NavGroup = {
     id: "admin",
     label: "Administration",
-    items: [{ id: "admin:audit", label: "Audit log", path: "/admin/audit", icon: ScrollText }],
+    items: [
+      { id: "admin:audit", label: "Audit log", path: "/admin/audit", icon: ScrollText },
+      { id: "admin:scope", label: "Scope policy", path: "/admin/scope", icon: Crosshair },
+    ],
   };
 
   return (

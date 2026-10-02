@@ -19,13 +19,13 @@ dependencies = [
     "pyyaml==6.0.3",              # knowledge base YAML (safe_load only)
     "argon2-cffi==25.1.0",        # Argon2id password hashing (03-logging-audit.md section 1)
     "dnspython==2.8.0",           # async DNS resolver for dns_lookup (no shell `dig`, CLAUDE.md rule 1)
+    "httpx==0.28.1",              # async HTTP client (NVD API; later header/TLS checker and threat intel)
 ]
 
 [dependency-groups]
 dev = [
     "pytest==9.1.1",
     "pytest-asyncio==1.4.0",
-    "httpx==0.28.1",              # required by FastAPI TestClient
     "ruff==0.16.9",
     "mypy==2.3.1",
     "bandit==1.9.4",

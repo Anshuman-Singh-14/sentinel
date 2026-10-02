@@ -94,6 +94,13 @@ class ScopeDenied(PermissionDenied):
     default_message = "The target is outside the permitted scope."
 
 
+class AuthorizationRequired(PermissionDenied):
+    # The user has not yet accepted the authorised-use statement required
+    # before running active tools (04-security.md section 2).
+    code = "authorization_required"
+    default_message = "Accept the authorised-use statement before running active tools."
+
+
 class PathDenied(PermissionDenied):
     code = "path_denied"
     default_message = "The requested path is not permitted."

@@ -8,7 +8,7 @@
 | 3 | Frontend shell | Complete locally, awaiting CI | 129 vitest tests; branch `feat/phase-3-frontend-shell`; audit viewer UI included |
 | 4 | Client-side utilities | Complete locally, awaiting CI | 289 vitest tests; branch `feat/phase-4-client-utilities` stacked on Phase 3 |
 | 5 | Task infra & DNS | Complete locally, awaiting CI | 404 backend + 311 frontend tests; live DNS run verified; ADR 0006; stacked on Phase 4 |
-| 6 | Scope policy & port scanner | Not started | Include the infra hard denylist + `lab` network |
+| 6 | Scope policy & port scanner | Complete locally, awaiting CI | 498 backend + 319 frontend tests; live lab scan verified; ADR 0007; stacked on Phase 5 |
 | 7 | Header & TLS checker | Not started | Prototype httpx IP pinning with `sni_hostname` first |
 | 8 | Threat intel | Not started | Stretch scope: two providers fully, third optional |
 | 9 | Network diagnostics | Not started | Stretch. Traceroute best-effort on Docker Desktop |
@@ -40,7 +40,9 @@ containers. See `docs/adr/0001-architecture-and-stack.md`.
   Phase 3 first, then rebase Phase 4 onto `main`.
 - Password analyzer: the optional HIBP k-anonymity check (spec "optional future") is not
   implemented; it would be the only network call in the local tools.
-- Branch `feat/phase-5-tasks-dns` is stacked on Phase 4. Merge order: 3 → 4 → 5.
+- Branches are stacked: merge order 3 → 4 → 5 → 6 (`feat/phase-6-scope-portscan`).
+- Existing dev installs: run `docker compose down` once so networks are recreated with the
+  pinned subnets (ADR 0007).
 - Re-check that nginx's `connect-src 'self'` allows same-origin `wss:` in all target
   browsers (Phase 14).
 - Existing dev volumes need the test DB once:
@@ -50,6 +52,49 @@ containers. See `docs/adr/0001-architecture-and-stack.md`.
   already-open Postgres 18 / Redis 8 / Node 26 PRs on GitHub.
 - LICENSE copyright holder (`Anshuman-Singh-14`) needs confirming by the repo owner.
 - The repo lives in OneDrive. Moving it to a non-synced path is recommended.
+
+## Phase 6 log
+
+- **Scope policy:**
+  - Pure decision logic with a hard infrastructure denylist (pinned compose subnets plus
+    metadata, link-local and multicast ranges; IPv4-mapped addresses unwrapped).
+  - Built-in allow list: loopback and the lab network. Admin CIDR and domain entries are
+    validated (no broader than /8, no overlap with the denylist), and every change is
+    audited as a security event.
+  - Every resolved address must be in scope. The checked addresses are pinned and handed
+    to the tool (anti-rebinding).
+- **Authorisation:**
+  - Versioned authorised-use statement; acceptance stored with hash and IP, insert-only,
+    and audited.
+  - Active runs require it. The API pre-checks scope; the worker checks authoritatively
+    before any traffic.
+- **Migration 0004:** `scope_entries` and `authorization_acknowledgements`, with explicit
+  grants.
+- **Port scanner:**
+  - TCP connect scan with bounded concurrency, presets and a parsed custom list (capped).
+  - Passive banners plus a HEAD probe on HTTP ports; sanitised banners.
+  - Fingerprinting to CPE, and exposure findings by class.
+  - NVD CVE enrichment: Redis cache, shared rate window, retries; CVSS-based severity with
+    LOW/MEDIUM confidence and explicit rationale.
+- **Lab profile:** lab-web (nginx), lab-redis (open Redis) and lab-banners (a fake-banner
+  server; no real vulnerable software) on an internal `lab` network.
+- **Frontend:** authorised-use gate and allowed-targets summary on active tools, an admin
+  Scope policy page (rules, add, enable/disable, remove, read-only denylist), and
+  re-gating when the server demands it.
+- **Docs:** ADR 0007, threat model (T10, T44 and T45 done; new T46–T51), `.env.example`,
+  and the CLAUDE.md lab command.
+- **Local acceptance (2026-10-02):**
+  - Backend: 498 tests pass (unit plus integration), with ruff, mypy and bandit clean and
+    `alembic check` reporting no drift. Frontend: 319 tests pass with eslint, prettier and
+    tsc clean.
+  - Live, against the lab through the Vite proxy:
+    - lab-banners: 21/22/23/25/3306 found; CVE-2011-2523 is CRITICAL at MEDIUM confidence;
+      Exim and MySQL CVEs are at LOW (Ubuntu builds).
+    - lab-web: nginx on 8080. lab-redis: exposed database (HIGH).
+    - `8.8.8.8`, `postgres` (10.231.0.2) and `169.254.169.254` were denied with reasons.
+    - The second run was served from the NVD cache.
+  - Two bugs found live and fixed with regression tests: the vsftpd CPE vendor, and the
+    limiter counting refused attempts.
 
 ## Phase 5 log
 

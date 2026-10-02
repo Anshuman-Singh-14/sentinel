@@ -142,9 +142,48 @@ class Settings(LoggingSettings):
     dns_timeout_seconds: float = Field(default=3.0, gt=0, le=30)
     dns_lifetime_seconds: float = Field(default=6.0, gt=0, le=60)
 
+    # Scope policy (Phase 6, ADR 0007). Infra subnets are always denied to
+    # active tools; the default allow list is loopback plus the lab network.
+    scope_infra_subnets: Annotated[list[str], NoDecode] = Field(
+        default_factory=lambda: ["10.231.0.0/24", "10.231.1.0/24", "10.231.2.0/24"]
+    )
+    scope_default_allow: Annotated[list[str], NoDecode] = Field(
+        default_factory=lambda: ["127.0.0.0/8", "::1/128", "10.231.10.0/24"]
+    )
+    # Bump to make every user re-acknowledge after the statement text changes.
+    authorization_statement_version: int = Field(default=1, ge=1)
+    run_rate_limit_per_hour: int = Field(default=200, ge=1, le=10_000)
+
+    # Port scanner.
+    port_scan_max_ports: int = Field(default=1024, ge=1, le=65_535)
+    port_scan_concurrency: int = Field(default=100, ge=1, le=500)
+    port_scan_connect_timeout_seconds: float = Field(default=1.0, gt=0, le=10)
+    port_scan_banner_timeout_seconds: float = Field(default=2.0, gt=0, le=10)
+
+    # NVD CVE API 2.0. The key only raises the rate limit (5 -> 50 requests per
+    # 30 s); without one the scanner still works, just with slower enrichment.
+    nvd_api_key: SecretStr | None = None
+    nvd_base_url: str = "https://services.nvd.nist.gov/rest/json/cves/2.0"
+    nvd_timeout_seconds: float = Field(default=15.0, gt=0, le=60)
+    nvd_cache_hours: int = Field(default=24, ge=1, le=720)
+
     _split_cors = field_validator("cors_origins", mode="before")(_split_csv)
     _split_proxies = field_validator("trusted_proxies", mode="before")(_split_csv)
     _split_nameservers = field_validator("dns_nameservers", mode="before")(_split_csv)
+    _split_infra = field_validator("scope_infra_subnets", mode="before")(_split_csv)
+    _split_allow = field_validator("scope_default_allow", mode="before")(_split_csv)
+
+    @field_validator("scope_infra_subnets", "scope_default_allow")
+    @classmethod
+    def _valid_cidrs(cls, value: list[str]) -> list[str]:
+        for entry in value:
+            ipaddress.ip_network(entry, strict=False)
+        return value
+
+    @field_validator("nvd_api_key", mode="before")
+    @classmethod
+    def _empty_key_is_none(cls, value: object) -> object:
+        return None if value == "" else value
 
     @field_validator("dns_nameservers")
     @classmethod

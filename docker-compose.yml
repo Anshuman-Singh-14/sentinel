@@ -45,6 +45,12 @@ x-backend-env: &backend-env
   RUN_RATE_LIMIT_PER_MINUTE: ${RUN_RATE_LIMIT_PER_MINUTE:-20}
   MAX_ACTIVE_RUNS_PER_USER: ${MAX_ACTIVE_RUNS_PER_USER:-3}
   DNS_NAMESERVERS: ${DNS_NAMESERVERS-1.1.1.1,9.9.9.9}
+  # Scope policy (Phase 6). Infra subnets are always denied; the default allow
+  # list is loopback plus the lab network. See docs/adr/0007-scope-policy.md.
+  SCOPE_INFRA_SUBNETS: ${SENTINEL_INTERNAL_SUBNET:-10.231.0.0/24},${SENTINEL_EDGE_SUBNET:-10.231.1.0/24},${SENTINEL_EGRESS_SUBNET:-10.231.2.0/24}
+  SCOPE_DEFAULT_ALLOW: 127.0.0.0/8,::1/128,${SENTINEL_LAB_SUBNET:-10.231.10.0/24}
+  PORT_SCAN_MAX_PORTS: ${PORT_SCAN_MAX_PORTS:-1024}
+  NVD_API_KEY: ${NVD_API_KEY:-}
 
 services:
   postgres:
@@ -156,7 +162,7 @@ services:
     # Phase 5). It is a separate network so the API and data stores stay
     # without egress. Active tools are additionally gated by the scope policy
     # and infra denylist (Phase 6, docs/threat-model.md T10).
-    networks: [internal, egress]
+    networks: [internal, egress, lab]
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -229,12 +235,82 @@ services:
       retries: 10
       start_period: 15s
 
+  # --- Lab targets (profile "lab"): docker compose --profile lab up -d -------
+  # Deliberately simple services for the port scanner to find. Reachable only
+  # from the worker over the internal `lab` network; no host ports.
+  lab-web:
+    profiles: [lab]
+    image: nginxinc/nginx-unprivileged:1.29-alpine
+    networks:
+      lab:
+        ipv4_address: ${SENTINEL_LAB_WEB_IP:-10.231.10.10}
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    restart: unless-stopped
+
+  # Pretends to be outdated FTP/SSH/Telnet/SMTP/MySQL servers by sending their
+  # greeting banners. No real (or vulnerable) software runs: it is a teaching
+  # target for banner grabbing and CVE matching. See infra/lab/banner_server.py.
+  lab-banners:
+    profiles: [lab]
+    build:
+      context: ./infra/lab
+    image: sentinel-lab-banners:dev
+    # Lets the unprivileged process bind ports below 1024 without any capability.
+    sysctls:
+      net.ipv4.ip_unprivileged_port_start: 0
+    networks:
+      lab:
+        ipv4_address: ${SENTINEL_LAB_BANNERS_IP:-10.231.10.11}
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    read_only: true
+    restart: unless-stopped
+
+  # A real Redis with no password: the classic "exposed database" finding.
+  lab-redis:
+    profiles: [lab]
+    image: redis:7.4-alpine
+    # Run as the image's redis user directly: the stock entrypoint's user
+    # switch would need capabilities that are dropped here.
+    user: redis
+    command: ["redis-server", "--protected-mode", "no", "--save", "", "--appendonly", "no"]
+    networks:
+      lab:
+        ipv4_address: ${SENTINEL_LAB_REDIS_IP:-10.231.10.12}
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    restart: unless-stopped
+
+# Subnets are pinned so the scope guard can deny Sentinel's own infrastructure
+# by address (threat model T10). If they clash with another network on your
+# machine, override the SENTINEL_*_SUBNET variables in .env: the same values
+# are passed to the backend as SCOPE_INFRA_SUBNETS / SCOPE_DEFAULT_ALLOW.
 networks:
   internal:
     internal: true
-  edge: {}
+    ipam:
+      config:
+        - subnet: ${SENTINEL_INTERNAL_SUBNET:-10.231.0.0/24}
+  edge:
+    ipam:
+      config:
+        - subnet: ${SENTINEL_EDGE_SUBNET:-10.231.1.0/24}
   # Outbound-only network for the worker (nothing publishes ports on it).
-  egress: {}
+  egress:
+    ipam:
+      config:
+        - subnet: ${SENTINEL_EGRESS_SUBNET:-10.231.2.0/24}
+  # Scan targets for the `lab` profile. Internal: lab containers cannot reach
+  # the internet, and only the worker joins them here.
+  lab:
+    internal: true
+    ipam:
+      config:
+        - subnet: ${SENTINEL_LAB_SUBNET:-10.231.10.0/24}
 
 volumes:
   pgdata:

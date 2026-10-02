@@ -24,6 +24,7 @@ from app.core.audit import AuditAction, AuditService, Outcome
 from app.core.auth.dependencies import Principal
 from app.core.auth.roles import Role, role_allows
 from app.core.errors import (
+    AuthorizationRequired,
     Conflict,
     NotFound,
     PermissionDenied,
@@ -38,6 +39,7 @@ from app.core.logging.context import current_request_id
 from app.core.ratelimit import RateLimiter, raise_if_limited
 from app.core.runs import events
 from app.core.runs.dispatch import Dispatcher
+from app.core.security import scope_service
 from app.db.models import FindingRow, ToolRun
 from app.db.models._types import utcnow
 from app.engine.base_tool import BaseTool
@@ -102,26 +104,41 @@ class RunService:
         target = tool.target_of(params)
 
         if tool.is_active:
-            # Fail closed: active tools send traffic to third parties, and the
-            # scope policy that authorises targets arrives in Phase 6. Until
-            # then no active tool may run at all.
-            await self.audit.record(
-                AuditAction.TOOL_RUN_DENIED_SCOPE,
-                actor=principal.actor,
-                outcome=Outcome.DENIED,
-                resource_type="tool",
-                resource_id=tool.tool_id,
-                target=target,
-                reason="no_scope_policy",
-                security_event=True,
+            # Active tools send traffic to the target: the user must have
+            # accepted the authorised-use statement, and the target must be in
+            # scope. The worker repeats the scope check (authoritatively)
+            # right before any packet is sent.
+            status = await scope_service.acknowledgement_status(
+                self.db, principal.user_id, self.settings
             )
-            raise ScopeDenied("Active tools are disabled until a scope policy is configured.")
+            if not status.acknowledged:
+                raise AuthorizationRequired
+            if target is None:
+                raise ValidationFailed("This tool needs a target.")
+            policy = await scope_service.load_policy(self.db, self.settings)
+            decision = await scope_service.precheck(target, policy)
+            if decision is not None and not decision.allowed:
+                await scope_service.record_denial(
+                    self.audit,
+                    principal.actor,
+                    tool_id=tool.tool_id,
+                    decision=decision,
+                    stage="api",
+                )
+                raise ScopeDenied(decision.reason, details={"reason": decision.code})
 
         raise_if_limited(
             await self.limiter.hit(
                 f"runs:user:{principal.user_id}",
                 limit=self.settings.run_rate_limit_per_minute,
                 window_seconds=60,
+            )
+        )
+        raise_if_limited(
+            await self.limiter.hit(
+                f"runs:user-hour:{principal.user_id}",
+                limit=self.settings.run_rate_limit_per_hour,
+                window_seconds=3600,
             )
         )
         active = await self.db.scalar(

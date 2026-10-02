@@ -8,6 +8,7 @@ import { ApiError, errorMessage } from "../../lib/api/errors";
 import type { ToolDescriptor } from "../../types/api";
 import { roleAllows } from "../../types/api";
 import { useUser } from "../auth/guards";
+import { ACK_QUERY_KEY, AuthorizationGate, ScopeSummary } from "../scope/AuthorizationGate";
 import { runQueryKey } from "../runs/useRunStatus";
 import { CATEGORY_LABELS } from "./registry";
 import { SchemaForm } from "./SchemaForm";
@@ -35,6 +36,13 @@ function RunForm({ tool }: { tool: ToolDescriptor }) {
       queryClient.setQueryData(runQueryKey(run.run_id), run);
       void queryClient.invalidateQueries({ queryKey: ["runs", "list"] });
       navigate(`/runs/${run.run_id}`);
+    },
+    onError: (error) => {
+      // The server is the authority: if it says the statement is needed
+      // (e.g. a new version), show the gate again.
+      if (error instanceof ApiError && error.code === "authorization_required") {
+        void queryClient.invalidateQueries({ queryKey: ACK_QUERY_KEY });
+      }
     },
   });
   const serverErrors = fieldErrors(start.error);
@@ -108,7 +116,14 @@ export function ToolPage() {
           </Link>
         }
       >
-        {canRun ? (
+        {canRun && tool.is_active ? (
+          <div className="flex flex-col gap-4">
+            <ScopeSummary />
+            <AuthorizationGate>
+              <RunForm tool={tool} />
+            </AuthorizationGate>
+          </div>
+        ) : canRun ? (
           <RunForm tool={tool} />
         ) : (
           <p className="text-sm text-muted">

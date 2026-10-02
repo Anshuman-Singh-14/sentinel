@@ -54,6 +54,10 @@ class ToolContext:
     progress_callback: ProgressCallback = _no_progress
     cancel_check: CancelCheck = _never_cancelled
     errors: list[ToolError] = field(default_factory=list)
+    # For active tools: the addresses the scope guard checked and approved.
+    # Tools connect to these and never re-resolve the target name, so DNS
+    # cannot change between "checked" and "connected" (rebinding).
+    authorized_addresses: tuple[str, ...] = ()
 
     async def report_progress(self, pct: int, message: str) -> None:
         await self.progress_callback(max(0, min(100, pct)), message)

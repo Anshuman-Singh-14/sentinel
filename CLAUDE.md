@@ -55,6 +55,7 @@ Sentinel is an educational and defensive platform. It does not replace professio
 
 ```bash
 docker compose up --build                       # full stack (runs migrations first)
+docker compose --profile lab up -d              # also start the scan-lab targets (lab-web, lab-banners, lab-redis)
 docker compose run --rm api pytest              # backend unit tests (integration tests skip)
 docker compose --profile test run --rm test     # unit + integration tests against sentinel_test DB
 docker compose exec api python -m app.cli create-admin --username admin   # first admin

@@ -45,7 +45,7 @@ Networks: `edge` (frontend, api) and `internal` (api, worker, postgres, redis;
 | T7 | T | Clickjacking, MIME sniffing | API sends CSP `frame-ancestors 'none'`, `nosniff`, `X-Frame-Options: DENY`. Prod nginx has a strict CSP | Done (P0) |
 | T8 | S | Cross-origin credentialed requests | Explicit CORS allowlist (`*` rejected at startup). Dev uses a same-origin proxy | Done (P0) |
 | T9 | T | Stored XSS from tool output | ESLint bans `dangerouslySetInnerHTML`. All data renders as React text; `JsonViewer` never creates links; tested with `<script>`/`javascript:` payloads (ADR 0004) | Done for the shell (P3); re-checked per result viewer |
-| T10 | E | **Pivoting: active tools aimed at Sentinel's own infra** (postgres, redis, api, metadata IPs) | Hard infra denylist the scope policy cannot override, and lab targets on a separate `lab` network | Planned (P6/P7) |
+| T10 | E | **Pivoting: active tools aimed at Sentinel's own infra** (postgres, redis, api, metadata IPs) | Hard denylist of pinned infra subnets plus metadata/link-local/multicast ranges, checked after resolution on every address (IPv4-mapped IPv6 unwrapped), never stored in the DB and not overridable by policy; lab targets on a separate internal `lab` network (ADR 0007) | Done (P6) |
 | T11 | E | SSRF via header checker or redirects; DNS rebinding | SSRF guard: scheme/port allowlist, IP pinning, re-validation on every redirect | Planned (P7) |
 | T12 | S | Cross-Site WebSocket Hijacking | Origin allowlist on the handshake plus a single-use, 30-second, run-bound ticket from a CSRF-checked POST, redeemed with GETDEL (ADR 0006) | Done (P5) |
 | T13 | R | Users deny running scans | Hash-chained, append-only audit log with user, session, IP and request ID on every event (ADR 0003) | Done (P2) |
@@ -79,8 +79,14 @@ Networks: `edge` (frontend, api) and `internal` (api, worker, postgres, redis;
 | T41 | I | DNS tool used to enumerate internal infrastructure (resolving `postgres`, `redis`, `*.internal`) | Explicit public upstream resolvers instead of Docker's embedded DNS; single-label, IP-literal and private/reserved-suffix names rejected at validation; PTR only for public IPs | Done (P5) |
 | T42 | T | Tampered or replayed task messages altering what a worker runs | Task carries only the run id; parameters are read from the database and re-validated; compare-and-set claim means a run executes at most once; a redelivered RUNNING run is failed, not re-run | Done (P5) |
 | T43 | D | One account flooding the workers | 20 runs/min per user, max 3 active runs per user, per-tool time limits in three layers, raw output capped at 1 MB | Done (P5) |
-| T44 | E | Active tool sending traffic before any authorisation exists | Fail-closed: every `is_active` tool is refused and audited as a security event until the Phase 6 scope policy | Done (P5, replaced in P6) |
-| T45 | E | Worker egress used to reach internal services | The worker is the only service on the `egress` network; active tools additionally get the infra denylist in Phase 6 (T10) | Partial (P5) |
+| T44 | E | Active tool sending traffic before any authorisation exists | Phase 5 refused all active tools; Phase 6 requires the audited authorised-use acknowledgement plus an in-scope target, checked by API and worker | Done (P6) |
+| T45 | E | Worker egress used to reach internal services | Worker is the only service on `egress`; active tools hit the infra hard denylist (T10) before connecting | Done (P6) |
+| T46 | T | DNS rebinding between scope check and connection | The worker hands the checked addresses to the tool (`authorized_addresses`); the scanner connects only to them and never re-resolves; it refuses to run without them | Done (P6) |
+| T47 | E | Scope bypass via over-broad or ambiguous rules (0.0.0.0/0, a domain resolving partly outside scope, look-alike domains) | Prefixes broader than /8 (IPv4) or /32 (IPv6) refused; overlaps with the denylist refused; every resolved address must be in scope; label-aware suffix matching | Done (P6) |
+| T48 | R | Users denying they knew scanning needed permission | Versioned statement acceptance stored (hash, IP, time) in an INSERT/SELECT-only table and audited; required before any active run | Done (P6) |
+| T49 | D/I | NVD integration abused or failing (rate-limit bans, slow API, hostile responses) | Shared Redis rate window under NVD limits, bounded retries honouring Retry-After, timeouts, JSON-only cache, capped results/descriptions; failure degrades to a partial result | Done (P6) |
+| T50 | T | Misleading CVE matches from spoofed or distro-patched banners | Confidence never HIGH; LOW for distribution builds with backport explanation; every CVE finding states the banner caveat | Done (P6) |
+| T51 | E | Lab targets used as a foothold | Lab network is internal (no egress) and joined only by the worker; lab-banners runs no real service, non-root, read-only, all capabilities dropped | Done (P6) |
 
 ## 5. Accepted risks and environment notes
 
