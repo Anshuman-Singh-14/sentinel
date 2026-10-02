@@ -4,12 +4,15 @@ import json
 import logging
 import time
 import uuid
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app.config import LoggingSettings
+from app.core.auth.dependencies import Principal
+from app.core.auth.roles import Role
 from app.core.ids import uuid7_timestamp_ms
 from app.core.logging import configure_logging, get_logger
 from tests.conftest import LogCapture
@@ -60,8 +63,9 @@ def test_unsafe_incoming_request_id_is_replaced(client: TestClient, bad_id: byte
 
 
 def test_access_log_records_route_template_not_raw_path(
-    client: TestClient, logs: LogCapture
+    client: TestClient, logs: LogCapture, authenticate: Callable[[Role], Principal]
 ) -> None:
+    authenticate(Role.VIEWER)
     client.get("/api/v1/tools?debug=1")
     client.get("/no/such/path/user-42?q=private")
 
