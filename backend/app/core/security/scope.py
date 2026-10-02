@@ -8,7 +8,8 @@ Decision procedure for a target (host name or IP literal):
    link-local, multicast, unspecified, broadcast), the target is denied. No
    policy entry can override this, so a mistaken or malicious admin entry
    like 0.0.0.0/0 still cannot point a scan at Postgres or Redis.
-3. **Allow** if the host name matches an allowed domain suffix, or if
+3. **Allow** if the host name matches an allowed domain suffix (and every
+   non-public address is also covered by a CIDR rule), or if
    *every* resolved address is inside an allowed CIDR. "Every", not "any":
    a name that resolves to one lab IP and one third-party IP is ambiguous,
    and ambiguity is denied.
@@ -191,6 +192,25 @@ async def evaluate(
     if not is_ip_literal(host):
         rule = policy.allowing_domain(host)
         if rule is not None:
+            # A domain rule vouches for public addresses only. Whoever controls
+            # the domain's DNS could otherwise point it at 10.x or 127.0.0.1 and
+            # turn an allowed name into a probe of internal networks (SSRF).
+            # Internal addresses need an explicit CIDR rule as well.
+            internal = [
+                str(a) for a in parsed if not a.is_global and policy.allowing_network(a) is None
+            ]
+            if internal:
+                return ScopeDecision(
+                    False,
+                    host,
+                    tuple(addresses),
+                    reason=(
+                        f"{host} is allowed by name but resolves to a non-public address "
+                        f"({', '.join(internal)}). Internal addresses must be allowed explicitly "
+                        "by an IP/CIDR rule."
+                    ),
+                    code="internal_via_domain",
+                )
             return ScopeDecision(True, host, tuple(addresses), code="domain", matched_rule=rule)
 
     rules = [policy.allowing_network(a) for a in parsed]

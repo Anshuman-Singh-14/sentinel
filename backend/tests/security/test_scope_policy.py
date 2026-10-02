@@ -122,3 +122,22 @@ def test_suffix_matching_is_label_aware(host: str, suffix: str, expected: bool) 
 
 async def test_loopback_default() -> None:
     assert (await evaluate("127.0.0.1", policy())).allowed
+
+
+async def test_domain_rule_does_not_cover_internal_addresses() -> None:
+    # Attacker-controlled DNS for an allowed domain points at a private host.
+    rebind = resolver({"intranet.example.org": ["192.168.1.10"]})
+    decision = await evaluate("intranet.example.org", policy(OWNED), rebind)
+    assert not decision.allowed and decision.code == "internal_via_domain"
+    # ...unless that internal range is explicitly in scope too.
+    lab_and_domain = policy(OWNED, PolicyRule("cidr", "192.168.1.0/24", "admin"))
+    assert (await evaluate("intranet.example.org", lab_and_domain, rebind)).allowed
+
+
+async def test_domain_rule_loopback_needs_cidr() -> None:
+    to_loopback = resolver({"local.example.org": ["127.0.0.1"]})
+    assert (await evaluate("local.example.org", policy(OWNED), to_loopback)).code == (
+        "internal_via_domain"
+    )
+    with_loopback = policy(OWNED, LOOPBACK)
+    assert (await evaluate("local.example.org", with_loopback, to_loopback)).allowed
