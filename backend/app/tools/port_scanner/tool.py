@@ -6,41 +6,12 @@ import httpx
 
 from app.config import get_settings
 from app.core.errors import ScopeDenied
-from app.core.runs.events import get_redis
+from app.core.external import RedisCache, RedisWindowLimiter
 from app.engine.base_tool import BaseTool, RawOutput, ToolContext
 from app.engine.schemas import Finding, ToolCategory
 from app.tools.port_scanner import service, translator
 from app.tools.port_scanner.nvd import NvdClient, NvdUnavailable
 from app.tools.port_scanner.schemas import PortScanParams
-
-
-class RedisCache:
-    async def get(self, key: str) -> str | None:
-        value = await get_redis().get(key)
-        return str(value) if value is not None else None
-
-    async def set(self, key: str, value: str, ttl_seconds: int) -> None:
-        await get_redis().set(key, value, ex=ttl_seconds)
-
-
-class RedisWindowLimiter:
-    """Fixed window shared by every worker process.
-
-    A request that does not fit is handed back (DECR), so waiting callers do
-    not use up the next window's quota just by asking.
-    """
-
-    async def try_acquire(self, key: str, limit: int, window_seconds: int) -> float:
-        redis = get_redis()
-        async with redis.pipeline(transaction=True) as pipe:
-            pipe.incr(key)
-            pipe.expire(key, window_seconds, nx=True)
-            pipe.ttl(key)
-            count, _, ttl = await pipe.execute()
-        if int(count) <= limit:
-            return 0.0
-        await redis.decr(key)
-        return float(ttl if isinstance(ttl, int) and ttl > 0 else window_seconds)
 
 
 def pick_address(addresses: tuple[str, ...]) -> str:

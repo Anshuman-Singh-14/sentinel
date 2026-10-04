@@ -290,8 +290,8 @@ def test_policy_changes_take_effect_immediately(
 
 
 def test_nvd_window_limiter_does_not_count_refused_attempts(db: Database) -> None:
+    from app.core.external import RedisWindowLimiter
     from app.core.runs import events
-    from app.tools.port_scanner.tool import RedisWindowLimiter
 
     saved = (events._client, events._client_loop)
     events.forget_client()

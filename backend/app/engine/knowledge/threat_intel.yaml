@@ -1,0 +1,104 @@
+# Knowledge entries for the `threat_intel` tool.
+#
+# Severity criteria (applied in app/tools/threat_intel/translator.py and quoted
+# in each finding's rationale):
+#   AbuseIPDB abuse confidence score: >= 75 HIGH, 25-74 MEDIUM, 1-24 LOW, 0 INFO.
+#   VirusTotal vendors flagging "malicious": >= 3 HIGH, 1-2 MEDIUM;
+#     "suspicious" only: LOW; none: INFO.
+#   Shodan: CVEs associated with the host: MEDIUM (confidence LOW, banner-based);
+#     open ports only: INFO.
+# Reputation is third-party opinion, not proof. Every finding names its source
+# and links to the provider's own page so it can be checked.
+schema_version: 1
+namespace: threat_intel
+version: "1.0.0"
+entries:
+  threat_intel.summary:
+    title: $indicator_count indicator(s) checked against $provider_names
+    explanation: >-
+      $lookups lookup(s) were made ($cache_hits answered from Sentinel's cache).
+      Threat intelligence services collect reports about IP addresses, domains and
+      files from many sources. Their opinion helps prioritise, but it is not proof:
+      check the linked provider pages before acting.
+    remediation: >-
+      Review the findings below. Treat reputation as one signal among others (your own
+      logs, ownership of the address, recent changes).
+    severity: INFO
+    severity_rationale: Informational summary of the lookups performed.
+    references: ["NIST SP 800-150 (Guide to Cyber Threat Information Sharing)"]
+
+  threat_intel.flagged:
+    title: $indicator is flagged by $provider ($headline)
+    explanation: >-
+      $provider's data says: $headline. $what_it_means
+    remediation: |-
+      If this is one of YOUR addresses, domains or files: treat it as a possible
+      compromise. Check the host for unexpected processes and outbound traffic, rotate
+      credentials, patch, and once clean, request delisting from the provider.
+      If it is someone else's: consider blocking it at your firewall, proxy or mail
+      gateway, and search your logs for past connections to it.
+      Verify first: $link
+    severity: MEDIUM
+    severity_rationale: "$metric. Sentinel's rule: $rule"
+    references: ["MITRE ATT&CK TA0011 (Command and Control)", "NIST SP 800-61r2 (Incident Handling)"]
+
+  threat_intel.clean:
+    title: No known abuse for $indicator on $provider
+    explanation: >-
+      $provider has data on $indicator and $headline. That is reassuring but not a
+      guarantee: new infrastructure often has no history yet.
+    remediation: No action needed. Re-check if you see suspicious activity involving it.
+    severity: INFO
+    severity_rationale: "$metric. Sentinel's rule: $rule"
+    references: []
+
+  threat_intel.not_found:
+    title: $provider has no record of $indicator
+    explanation: >-
+      $provider has never seen $indicator. For a file hash this means nobody has
+      submitted that exact file; for an address or domain, nobody has reported it.
+    remediation: No action needed. Absence of reports is not proof of safety.
+    severity: INFO
+    severity_rationale: No data from the provider, so no reputation judgement.
+    references: []
+
+  threat_intel.exposure_vulns:
+    title: Shodan associates $vuln_count CVE(s) with $indicator
+    explanation: >-
+      Shodan's internet-wide scans saw these services on $indicator and matched their
+      versions against known vulnerabilities: $vulns. Attackers use exactly this data
+      to pick targets. Matches are based on banners, which can be wrong or outdated.
+    remediation: |-
+      If this is your address: confirm the versions actually running, patch or upgrade
+      the affected services, and close ports that do not need to be public
+      (open ports seen: $ports). Re-check after Shodan's next crawl.
+      Details: $link
+    severity: MEDIUM
+    severity_rationale: >-
+      Publicly listed CVEs on an internet-facing host (Shodan). Confidence is LOW:
+      the match comes from service banners, the same caveat as Sentinel's own scanner.
+    references: ["CIS Controls v8 7.4 (Automated application patch management)"]
+
+  threat_intel.exposure_ports:
+    title: Shodan has seen $port_count open port(s) on $indicator
+    explanation: >-
+      Shodan's crawlers found these ports open on $indicator: $ports (organisation:
+      $org; last seen $last_seen). This is what anyone on the internet can see about
+      the address.
+    remediation: >-
+      If this is your address, make sure every listed port is meant to be public.
+      Close or firewall the rest. Details: $link
+    severity: INFO
+    severity_rationale: Inventory of publicly visible services, with no known vulnerability listed.
+    references: ["CIS Controls v8 4.4"]
+
+  threat_intel.skipped_private:
+    title: $indicator was not looked up (private or reserved address)
+    explanation: >-
+      $indicator is not a public internet address, so no reputation service has data on
+      it. Sentinel never sends private addresses to third parties: it would reveal your
+      internal network layout and return nothing useful.
+    remediation: No action needed. Look up the public address your traffic leaves from instead.
+    severity: INFO
+    severity_rationale: Not looked up by design (privacy).
+    references: ["RFC 1918", "RFC 6890"]

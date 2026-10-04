@@ -71,7 +71,9 @@ def describe(definition: PlaybookDefinition) -> PlaybookInfo:
     active = False
     for step in definition.steps:
         tool = registry.get(step.tool_id) if step.tool_id in registry else None
-        if tool is None and not step.optional:
+        availability = tool.availability() if tool else None
+        usable = bool(availability and availability.available)
+        if not usable and not step.optional:
             missing_required.append(step.tool_id)
         active = active or bool(tool and tool.is_active)
         steps.append(
@@ -80,7 +82,12 @@ def describe(definition: PlaybookDefinition) -> PlaybookInfo:
                 name=step.name,
                 tool_id=step.tool_id,
                 tool_name=tool.name if tool else None,
-                available=tool is not None,
+                available=usable,
+                unavailable_reason=(
+                    None
+                    if usable
+                    else (availability.reason if availability else "Not installed yet.")
+                ),
                 optional=step.optional,
                 on_failure=step.on_failure,
                 is_active=bool(tool and tool.is_active),
@@ -94,7 +101,7 @@ def describe(definition: PlaybookDefinition) -> PlaybookInfo:
         description=definition.description,
         available=not missing_required,
         unavailable_reason=(
-            f"Required tool(s) not installed: {', '.join(missing_required)}"
+            f"Required tool(s) not installed or not configured: {', '.join(missing_required)}"
             if missing_required
             else None
         ),

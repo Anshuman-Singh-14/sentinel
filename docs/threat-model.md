@@ -1,7 +1,7 @@
 # Sentinel — Threat model
 
-STRIDE-style and updated every phase. **Last updated:** Phase 14 (2026-10-04), the
-final pass for the capstone core. Phases 8–11 (threat intel, log analysis, FIM,
+STRIDE-style and updated every phase. **Last updated:** Phase 8 (2026-10-04), after the
+final capstone-core pass in Phase 14. Phases 9–11 (log analysis, FIM,
 network diagnostics) will add their own rows (T16 is already reserved for them).
 
 ## 1. System overview
@@ -32,7 +32,7 @@ Host ports bind to `127.0.0.1` only. The production profile is described in ADR 
 | User credentials and sessions | Account takeover gives an attacker the ability to scan as that user |
 | Audit trail | Accountability. Tampering would hide misuse |
 | Scope policy (Phase 6) | Controls which third parties Sentinel can send traffic to |
-| Provider API keys (Phase 8) | Financial and reputational cost if leaked |
+| Provider API keys (Phase 8) | Financial and reputational cost if leaked; quota abuse (T70, T73) |
 | DB/Redis credentials | Full data access |
 | Scan results and findings | Reveal weaknesses in the scanned systems |
 
@@ -119,6 +119,11 @@ Host ports bind to `127.0.0.1` only. The production profile is described in ADR 
 | T67 | E | A route shipped without an authorization decision | `test_authz_matrix.py` lists every route with its minimum role; a new unclassified route fails the build. Every protected route is checked for 401 (anonymous) and 403 (each lower role, audited) | Done (P14) |
 | T68 | D/R | Audit trail flooded with anonymous noise, hiding real events | Cookie-less refresh probes (every anonymous page load) are no longer audited, matching the rule for unauthenticated 401s; malformed refresh cookies still are; per-IP refresh limit unchanged | Done (P14) |
 | T69 | I | Weak or reused secrets in fresh installs | `scripts/init-env.sh` / `init-env.ps1` generate every secret from the OS CSPRNG, refuse to overwrite an existing `.env`, and create it owner-readable | Done (P14) |
+| T70 | I | Provider API keys leaking through logs, errors, stored results or the API | Keys are `SecretStr` settings passed only in headers (Shodan: query string). Provider errors carry fixed messages, never `str(exc)` (httpx text can include the URL); httpx's logger is held at WARNING; the full provider response is never stored; the catalogue reports `configured: true/false` only. Tests assert keys appear in no stored run data, error or catalogue output | Done (P8) |
+| T71 | I | Internal network details disclosed to third parties through lookups | Private, loopback, link-local, documentation and other non-global addresses are never sent (INFO finding instead); internal domain suffixes are rejected; the tool description states that indicators leave Sentinel. Tests prove a private address in the input produces no outbound request | Done (P8) |
+| T72 | T | Hostile or poisoned provider data (huge bodies, markup, misleading verdicts) | 1 MB response cap; whitelisted, length-capped fields only; text rendered escaped (React, PDF escaping, CSV formula guard); every finding names its source and links to it; confidence reflects how much evidence backs a verdict; "no reports" is never presented as proof of safety | Done (P8) |
+| T73 | D | Provider quota exhaustion or bans (many users, playbook re-runs) | Per-provider budgets in a Redis window shared by all workers (VirusTotal 4/min by default); 429/503 retried with Retry-After or jittered backoff, then a partial result; 6-hour result cache; at most 20 indicators per run; run quotas still apply | Done (P8) |
+| T74 | E/D | A misconfigured tool queued and failing repeatedly | Generic `availability()` hook: the API refuses runs of unconfigured tools with 409 and a reason; playbooks skip optional unconfigured steps | Done (P8) |
 
 ## 5. Accepted risks and environment notes
 

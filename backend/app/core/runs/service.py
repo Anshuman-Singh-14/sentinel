@@ -108,6 +108,10 @@ class RunService:
             )
             raise PermissionDenied
 
+        availability = tool_cls.availability()
+        if not availability.available:
+            raise Conflict(availability.reason or f"The {tool.name} tool is not available.")
+
         try:
             params = tool.params_model.model_validate(raw_params)
         except ValidationError as exc:

@@ -37,6 +37,21 @@ _TOOL_ID_RE = re.compile(r"^[a-z][a-z0-9_]{1,63}$")
 _SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+$")
 
 
+@dataclass(frozen=True, slots=True)
+class ToolAvailability:
+    """Whether an installed tool can run right now, and why not.
+
+    Most tools are always available. Some depend on configuration, such as
+    threat intel, which needs at least one provider API key. ``details`` is
+    shown in the catalogue (e.g. which providers are configured) and must
+    never contain secrets.
+    """
+
+    available: bool = True
+    reason: str | None = None
+    details: dict[str, Any] = field(default_factory=dict)
+
+
 class RunCancelled(Exception):  # a control-flow signal, not an error
     """Raised by a tool when ``ctx.is_cancelled()`` reports a cancellation request."""
 
@@ -127,6 +142,11 @@ class BaseTool[ParamsT: BaseModel](ABC):
     @abstractmethod
     def translate(self, raw: RawOutput, params: ParamsT) -> list[Finding]:
         """Turn raw output into educational findings (the Translation Engine)."""
+
+    @classmethod
+    def availability(cls) -> ToolAvailability:
+        """Override when the tool needs configuration (API keys) before it can run."""
+        return ToolAvailability()
 
     def target_of(self, params: ParamsT) -> str | None:
         """The human-readable target recorded on the result (host, URL...)."""

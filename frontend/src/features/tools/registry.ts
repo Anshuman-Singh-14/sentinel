@@ -180,7 +180,7 @@ export function buildToolNavigation(catalogue: ToolDescriptor[], role: Role): Na
         path: remoteToolPath(tool.tool_id),
         icon: REMOTE_TOOL_META[tool.tool_id]?.icon ?? Wrench,
         description: tool.description,
-        tag: tool.is_active ? "active" : undefined,
+        tag: tool.available === false ? "setup" : tool.is_active ? "active" : undefined,
         locked: !roleAllows(role, tool.required_role),
       })),
     });

@@ -5,7 +5,7 @@ import { NotFoundPage } from "../../app/NotFoundPage";
 import { Badge, Card, JsonViewer, Spinner, Tabs } from "../../components/ui";
 import { runsApi } from "../../lib/api/endpoints";
 import { ApiError, errorMessage } from "../../lib/api/errors";
-import type { ToolDescriptor } from "../../types/api";
+import type { ProviderStatus, ToolDescriptor } from "../../types/api";
 import { roleAllows } from "../../types/api";
 import { useUser } from "../auth/guards";
 import { ACK_QUERY_KEY, AuthorizationGate, ScopeSummary } from "../scope/AuthorizationGate";
@@ -88,6 +88,8 @@ export function ToolPage() {
   if (!tool) return <NotFoundPage />;
 
   const canRun = roleAllows(user.role, tool.required_role);
+  const configured = tool.available !== false;
+  const providers = providerStatus(tool);
 
   return (
     <div className="flex max-w-4xl flex-col gap-6">
@@ -105,7 +107,9 @@ export function ToolPage() {
             <Badge tone="ok">Passive</Badge>
           )}
           <Badge tone={canRun ? "accent" : "fail"}>Requires {tool.required_role}</Badge>
+          {!configured && <Badge tone="warn">Not configured</Badge>}
         </div>
+        {providers.length > 0 && <ProviderList providers={providers} />}
       </div>
 
       <Card
@@ -119,7 +123,11 @@ export function ToolPage() {
           </Link>
         }
       >
-        {canRun && tool.is_active ? (
+        {!configured ? (
+          <p role="status" className="text-sm text-warn">
+            {tool.unavailable_reason ?? "This tool is installed but not configured yet."}
+          </p>
+        ) : canRun && tool.is_active ? (
           <div className="flex flex-col gap-4">
             <ScopeSummary />
             <AuthorizationGate>
@@ -159,5 +167,28 @@ export function ToolPage() {
         />
       </Card>
     </div>
+  );
+}
+
+function providerStatus(tool: ToolDescriptor): ProviderStatus[] {
+  const providers = tool.status?.providers;
+  return Array.isArray(providers) ? (providers as ProviderStatus[]) : [];
+}
+
+/** Which third-party providers back this tool. Status only: keys never reach the browser. */
+function ProviderList({ providers }: { providers: ProviderStatus[] }) {
+  return (
+    <ul className="mt-3 flex flex-wrap gap-2" aria-label="Providers">
+      {providers.map((p) => (
+        <li key={p.id}>
+          <Badge
+            tone={p.configured ? "ok" : "neutral"}
+            title={`Supports: ${p.supports.join(", ")}`}
+          >
+            {p.name}: {p.configured ? "configured" : `set ${p.env_var}`}
+          </Badge>
+        </li>
+      ))}
+    </ul>
   );
 }

@@ -175,6 +175,24 @@ class Settings(LoggingSettings):
     nvd_timeout_seconds: float = Field(default=15.0, gt=0, le=60)
     nvd_cache_hours: int = Field(default=24, ge=1, le=720)
 
+    # Threat intelligence (Phase 8). Each provider is enabled only when its key
+    # is set; with no key at all the tool reports itself unavailable. Keys are
+    # SecretStr: never logged, never returned by the API.
+    abuseipdb_api_key: SecretStr | None = None
+    virustotal_api_key: SecretStr | None = None
+    shodan_api_key: SecretStr | None = None
+    abuseipdb_base_url: str = "https://api.abuseipdb.com/api/v2"
+    virustotal_base_url: str = "https://www.virustotal.com/api/v3"
+    shodan_base_url: str = "https://api.shodan.io"
+    # Per-provider request budgets (a Redis window shared by all workers). The
+    # defaults sit under each provider's free tier: VirusTotal's public API
+    # allows 4 requests a minute.
+    abuseipdb_requests_per_minute: int = Field(default=30, ge=1, le=1000)
+    virustotal_requests_per_minute: int = Field(default=4, ge=1, le=1000)
+    shodan_requests_per_minute: int = Field(default=30, ge=1, le=1000)
+    threat_intel_timeout_seconds: float = Field(default=10.0, gt=0, le=60)
+    threat_intel_cache_hours: int = Field(default=6, ge=1, le=168)
+
     # Reports (Phase 13). Rendering runs in a worker; these bound its cost.
     report_rate_limit_per_minute: int = Field(default=10, ge=1, le=1000)
     max_active_reports_per_user: int = Field(default=3, ge=1, le=100)
@@ -204,7 +222,9 @@ class Settings(LoggingSettings):
             ipaddress.ip_network(entry, strict=False)
         return value
 
-    @field_validator("nvd_api_key", mode="before")
+    @field_validator(
+        "nvd_api_key", "abuseipdb_api_key", "virustotal_api_key", "shodan_api_key", mode="before"
+    )
     @classmethod
     def _empty_key_is_none(cls, value: object) -> object:
         return None if value == "" else value

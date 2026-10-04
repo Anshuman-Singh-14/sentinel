@@ -14,7 +14,8 @@ Why not a Celery chain, or sub-tasks the orchestrator waits on?
   (02-modules.md); parallel steps can later fan out sub-tasks.
 
 Step outcome rules:
-* A tool that is not installed: an ``optional`` step is SKIPPED, otherwise FAILED.
+* A tool that is not installed, or installed but not configured (``availability()``,
+  e.g. threat intel without an API key): an ``optional`` step is SKIPPED, otherwise FAILED.
 * A reference that cannot be resolved, or a step the run service refuses
   (scope, validation, authorisation), means the step FAILED with that error.
 * A FAILED or TIMED_OUT step with ``on_failure: stop`` stops the playbook
@@ -277,13 +278,21 @@ async def execute_playbook(playbook_run_id: uuid.UUID) -> str:
             run.progress_pct = round(index / total * 100)
             step.started_at = utcnow()
 
+            unusable: dict[str, str] | None = None
             if step.tool_id not in registry:
-                optional = bool(spec and spec.optional)
-                step.status = "SKIPPED" if optional else "FAILED"
-                step.error = {
+                unusable = {
                     "code": "tool_not_installed",
                     "message": f"The {step.tool_id} tool is not installed yet.",
                 }
+            elif not (availability := registry.get(step.tool_id).availability()).available:
+                unusable = {
+                    "code": "tool_unavailable",
+                    "message": availability.reason or f"The {step.tool_id} tool is not available.",
+                }
+            if unusable is not None:
+                optional = bool(spec and spec.optional)
+                step.status = "SKIPPED" if optional else "FAILED"
+                step.error = unusable
                 step.completed_at = utcnow()
                 await db.commit()
                 await _publish(run)

@@ -52,6 +52,10 @@ x-backend-env: &backend-env
   PORT_SCAN_MAX_PORTS: ${PORT_SCAN_MAX_PORTS:-1024}
   NVD_API_KEY: ${NVD_API_KEY:-}
   WEB_CHECK_ALLOWED_PORTS: ${WEB_CHECK_ALLOWED_PORTS:-80,443,8000,8008,8080,8443,8888}
+  # Threat intel (Phase 8): each provider is enabled only when its key is set.
+  ABUSEIPDB_API_KEY: ${ABUSEIPDB_API_KEY:-}
+  VIRUSTOTAL_API_KEY: ${VIRUSTOTAL_API_KEY:-}
+  SHODAN_API_KEY: ${SHODAN_API_KEY:-}
 
 services:
   postgres:
