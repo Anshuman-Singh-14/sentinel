@@ -1,0 +1,37 @@
+Oct  4 08:00:00 web01 systemd[1]: Started Session 1 of user alice.
+Oct  4 08:00:05 web01 sshd[1000]: Accepted publickey for alice from 192.0.2.10 port 50122 ssh2: ED25519 SHA256:abc
+Oct  4 08:00:06 web01 sshd[1000]: pam_unix(sshd:session): session opened for user alice(uid=1000) by (uid=0)
+Oct  4 08:01:00 web01 CRON[2001]: pam_unix(cron:session): session opened for user root(uid=0) by (uid=0)
+Oct  4 08:02:00 web01 sudo[2002]:    alice : TTY=pts/0 ; PWD=/home/alice ; USER=root ; COMMAND=/usr/bin/apt update
+Oct  4 09:15:00 web01 sshd[3000]: Failed password for root from 203.0.113.50 port 40000 ssh2
+Oct  4 09:15:04 web01 sshd[3001]: Failed password for admin from 203.0.113.50 port 40001 ssh2
+Oct  4 09:15:08 web01 sshd[3002]: Failed password for root from 203.0.113.50 port 40002 ssh2
+Oct  4 09:15:12 web01 sshd[3003]: Failed password for admin from 203.0.113.50 port 40003 ssh2
+Oct  4 09:15:16 web01 sshd[3004]: Failed password for root from 203.0.113.50 port 40004 ssh2
+Oct  4 09:15:20 web01 sshd[3005]: Failed password for admin from 203.0.113.50 port 40005 ssh2
+Oct  4 09:15:24 web01 sshd[3006]: Failed password for root from 203.0.113.50 port 40006 ssh2
+Oct  4 09:15:28 web01 sshd[3007]: Failed password for admin from 203.0.113.50 port 40007 ssh2
+Oct  4 09:15:32 web01 sshd[3008]: Failed password for root from 203.0.113.50 port 40008 ssh2
+Oct  4 09:15:36 web01 sshd[3009]: Failed password for admin from 203.0.113.50 port 40009 ssh2
+Oct  4 09:15:40 web01 sshd[3010]: Failed password for root from 203.0.113.50 port 40010 ssh2
+Oct  4 09:15:44 web01 sshd[3011]: Failed password for admin from 203.0.113.50 port 40011 ssh2
+Oct  4 09:15:50 web01 sshd[3020]: Connection closed by authenticating user root 203.0.113.50 port 40011 [preauth]
+Oct  4 10:00:00 web01 sshd[4000]: Invalid user oracle from 198.51.100.23 port 51000
+Oct  4 10:00:02 web01 sshd[4000]: Failed password for invalid user oracle from 198.51.100.23 port 51000 ssh2
+Oct  4 10:02:00 web01 sshd[4001]: Invalid user test from 198.51.100.23 port 51001
+Oct  4 10:02:02 web01 sshd[4001]: Failed password for invalid user test from 198.51.100.23 port 51001 ssh2
+Oct  4 10:04:00 web01 sshd[4002]: Invalid user postgres from 198.51.100.23 port 51002
+Oct  4 10:04:02 web01 sshd[4002]: Failed password for invalid user postgres from 198.51.100.23 port 51002 ssh2
+Oct  4 10:06:00 web01 sshd[4003]: Invalid user ubuntu from 198.51.100.23 port 51003
+Oct  4 10:06:02 web01 sshd[4003]: Failed password for invalid user ubuntu from 198.51.100.23 port 51003 ssh2
+Oct  4 10:08:00 web01 sshd[4004]: Invalid user git from 198.51.100.23 port 51004
+Oct  4 10:08:02 web01 sshd[4004]: Failed password for invalid user git from 198.51.100.23 port 51004 ssh2
+Oct  4 11:30:00 web01 sshd[5000]: Failed password for deploy from 203.0.113.77 port 52000 ssh2
+Oct  4 11:30:30 web01 sshd[5001]: Failed password for deploy from 203.0.113.77 port 52001 ssh2
+Oct  4 11:31:00 web01 sshd[5002]: Failed password for deploy from 203.0.113.77 port 52002 ssh2
+Oct  4 11:31:30 web01 sshd[5003]: Failed password for deploy from 203.0.113.77 port 52003 ssh2
+Oct  4 11:33:00 web01 sshd[5010]: Accepted password for deploy from 203.0.113.77 port 52010 ssh2
+2026-10-04T12:05:00.123456+00:00 web01 sshd-session[6000]: Accepted password for root from 192.0.2.99 port 53000 ssh2
+--- log rotated ---
+kernel panic - not syncing: this line has no syslog header
+Oct  4 13:00:00 web01 systemd[1]: Stopping OpenBSD Secure Shell server...

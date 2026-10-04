@@ -1,0 +1,252 @@
+# Knowledge entries for the `log_analyzer` tool (Phase 10).
+#
+# Severity criteria (applied in app/tools/log_analyzer/translator.py and quoted
+# in every finding's rationale). Thresholds come from rules.yaml.
+#   SSH password-guessing burst: MEDIUM. Constant internet background noise;
+#     it is an attempt, not a compromise (CWE-307, MITRE ATT&CK T1110).
+#   User-name enumeration: LOW. Reconnaissance only.
+#   Successful login after repeated failures: HIGH. The guessing may have
+#     worked (MITRE ATT&CK T1078 Valid Accounts).
+#   Root login attempt: MEDIUM if every attempt failed, HIGH if one succeeded
+#     (direct root login defeats accountability; CIS Benchmark "PermitRootLogin no").
+#   Path traversal attempt: MEDIUM; HIGH if the server answered 2xx, because the
+#     file may have been disclosed (CWE-22).
+#   Scanner user agent: LOW. Automated reconnaissance (MITRE ATT&CK T1595).
+#   High request rate from one address: MEDIUM. Possible brute force,
+#     scraping or application-layer DoS (OWASP Automated Threats).
+#   Error spike: LOW when mostly 4xx (probing), MEDIUM when 5xx dominate
+#     (the application is failing under that traffic).
+# Log lines are attacker-controlled text. Samples in evidence are truncated and
+# stripped of control characters; they are shown, never interpreted.
+schema_version: 1
+namespace: log_analyzer
+version: "1.0.0"
+entries:
+  log_analyzer.summary:
+    title: $lines lines analysed as $parser_title ($detections detection(s))
+    explanation: >-
+      Sentinel read $lines line(s) ($events security-relevant event(s), $unrecognised
+      unrecognised) covering $period. Each detection rule looks for one pattern that
+      attackers leave in logs; the findings below explain what was found and what to do.
+    remediation: >-
+      Review the detections, most severe first. Logs only show what was attempted and
+      recorded: keep them centralised and protected from tampering so they stay useful.
+    severity: INFO
+    severity_rationale: Informational summary of the analysis.
+    references: ["NIST SP 800-92 (Guide to Computer Security Log Management)"]
+
+  log_analyzer.no_detections:
+    title: No suspicious patterns found by the $rule_count rule(s) for this format
+    explanation: >-
+      None of the detection rules fired. That is good news, but rules only catch known
+      patterns, and an attacker who already has valid credentials looks like a normal user.
+    remediation: >-
+      No action needed. Keep reviewing logs regularly and consider centralised log
+      monitoring with alerting.
+    severity: INFO
+    severity_rationale: No rule fired, so there is nothing to rate.
+    references: []
+
+  log_analyzer.unrecognised_lines:
+    title: $unrecognised of $lines lines were not in the expected format
+    explanation: >-
+      A large share of the file did not match the $parser_title format, so detections
+      may be incomplete. The file may mix several formats or use a custom log format.
+    remediation: >-
+      Check that you chose the right format, or configure the server to use the standard
+      format (syslog for SSH, nginx/Apache "combined" for web servers).
+    severity: INFO
+    severity_rationale: A data-quality note about the input, not a security issue.
+    references: []
+
+  log_analyzer.ssh_bruteforce:
+    title: "SSH password guessing from $ip: $count failed logins"
+    explanation: >-
+      $ip failed to log in over SSH $count time(s) between $first_seen and $last_seen,
+      with up to $peak attempts within $window_seconds seconds$users_text. That pace is
+      typical of automated password-guessing tools, which try common passwords against
+      every reachable SSH server on the internet.
+    remediation: |-
+      - Disable password logins and use SSH keys only (PasswordAuthentication no).
+      - Rate-limit and ban repeat offenders automatically, e.g. fail2ban's sshd jail.
+      - Restrict SSH to a VPN or to known source addresses at the firewall.
+      - Make sure no account has a weak or default password.
+    severity: MEDIUM
+    severity_rationale: >-
+      $threshold or more failed logins from one address within $window_seconds s is an
+      automated guessing attempt (Sentinel rule ssh_bruteforce, MEDIUM: an attempt, not a
+      compromise; CWE-307). It is rated HIGH only when a login then succeeds.
+    references: ["CWE-307", "MITRE ATT&CK T1110 (Brute Force)", "NIST SP 800-53 AC-7"]
+
+  log_analyzer.invalid_user_enumeration:
+    title: "SSH user-name probing from $ip: $distinct non-existent users tried"
+    explanation: >-
+      $ip tried to log in as $distinct user name(s) that do not exist on this server
+      (for example: $values). Attackers do this to find which accounts exist, then focus
+      their password guessing on them.
+    remediation: |-
+      - Keep OpenSSH up to date (older versions leaked which users exist through timing).
+      - Use key-only authentication and fail2ban, as for password guessing.
+      - Consider AllowUsers / AllowGroups so only named accounts may log in over SSH.
+    severity: LOW
+    severity_rationale: >-
+      $threshold or more distinct invalid user names from one address is reconnaissance
+      (Sentinel rule invalid_user_enumeration, LOW: no account was accessed).
+    references: ["CWE-204", "MITRE ATT&CK T1087 (Account Discovery)"]
+
+  log_analyzer.success_after_failures:
+    title: "Successful SSH login from $ip after $failures failed attempts"
+    explanation: >-
+      $ip failed to log in at least $threshold times and then logged in successfully
+      ($successes_text). This can be a legitimate user who mistyped a password, but it is
+      also exactly what a successful password-guessing attack looks like.
+    remediation: |-
+      - Confirm with the account owner that the login was theirs.
+      - If not: lock the account, rotate its credentials and SSH keys, and check the
+        host for persistence (new users, authorized_keys entries, cron jobs, services).
+      - Switch to key-only authentication so guessing cannot succeed.
+    severity: HIGH
+    severity_rationale: >-
+      A successful login after $threshold or more failures from the same address (within
+      $window_seconds s) may be a compromised account (Sentinel rule success_after_failures,
+      HIGH; MITRE ATT&CK T1078).
+    references: ["MITRE ATT&CK T1078 (Valid Accounts)", "NIST SP 800-61r2 (Incident Handling)"]
+
+  log_analyzer.root_login_attempt:
+    title: "SSH login attempts as root from $ip ($count, all failed)"
+    explanation: >-
+      $ip tried to log in directly as root $count time(s). root exists on every Linux
+      system, so it is the first account attackers try.
+    remediation: |-
+      - Set PermitRootLogin no in sshd_config; administrators log in as themselves and
+        use sudo, which keeps an audit trail of who did what.
+      - Combine with key-only authentication and fail2ban.
+    severity: MEDIUM
+    severity_rationale: >-
+      Root login attempts that all failed (Sentinel rule root_login_attempt, MEDIUM: an
+      attempt on the most privileged account; CIS Benchmark recommends PermitRootLogin no).
+    references: ["CIS Distribution Independent Linux Benchmark 5.2 (SSH)", "CWE-250"]
+
+  log_analyzer.root_login_success:
+    title: "Successful SSH login as root from $ip"
+    explanation: >-
+      root logged in directly over SSH from $ip ($accepted successful, $count attempt(s) in
+      total). Even when legitimate, direct root logins mean nobody can tell which person
+      used the account.
+    remediation: |-
+      - Confirm the login was expected. If not, treat the host as compromised.
+      - Set PermitRootLogin no (or prohibit-password at most) and log in as a named user.
+    severity: HIGH
+    severity_rationale: >-
+      A successful direct root login (Sentinel rule root_login_attempt, escalated to HIGH
+      when a root login succeeds: full control of the system, with no individual
+      accountability).
+    references: ["CIS Distribution Independent Linux Benchmark 5.2 (SSH)", "CWE-250"]
+
+  log_analyzer.path_traversal:
+    title: "Path traversal attempts from $ip ($count request(s))"
+    explanation: >-
+      $ip sent $count request(s) that try to escape the web root ($techniques), for
+      example: $sample. If the application builds file paths from user input, this can
+      read files such as /etc/passwd or the application's own secrets. No request was
+      answered with a success status.
+    remediation: |-
+      - Never build file paths from request input; map identifiers to files instead.
+      - If you must, resolve the path and check it stays inside the allowed directory.
+      - Block traversal sequences at a WAF (e.g. OWASP Core Rule Set) as an extra layer.
+    severity: MEDIUM
+    severity_rationale: >-
+      Traversal attempts that the server rejected (Sentinel rule path_traversal, MEDIUM:
+      active exploitation attempt; CWE-22). HIGH if any answer was 2xx.
+    references: ["CWE-22", "OWASP WSTG-ATHZ-01", "OWASP Core Rule Set"]
+
+  log_analyzer.path_traversal_success:
+    title: "Path traversal from $ip answered with success ($successful of $count request(s))"
+    explanation: >-
+      $ip sent $count traversal request(s) ($techniques), and $successful were answered
+      with a 2xx status, for example: $sample. A success status does not prove a file was
+      leaked (some apps answer 200 with an error page), but it must be checked.
+    remediation: |-
+      - Check the response for those requests now: was a real file returned?
+      - If so, treat any secrets in readable files as exposed and rotate them.
+      - Fix the code: never build file paths from request input.
+    severity: HIGH
+    severity_rationale: >-
+      Traversal requests answered with 2xx (Sentinel rule path_traversal, escalated to
+      HIGH: the file may have been disclosed; CWE-22).
+    references: ["CWE-22", "OWASP WSTG-ATHZ-01"]
+
+  log_analyzer.scanner_user_agent:
+    title: "Vulnerability scanner at work from $ip ($matched)"
+    explanation: >-
+      $ip sent $count request(s) identifying as a known security scanner ($matched).
+      Scanners probe for known vulnerabilities and misconfigurations. The user agent is
+      self-declared, so real attackers often hide it; seeing it means someone did not.
+    remediation: |-
+      - If you did not commission this scan, block the address and review what it found
+        (look for 2xx responses to unusual paths).
+      - Keep software patched: scanners look for known, fixable flaws.
+    severity: LOW
+    severity_rationale: >-
+      A self-identified scanner is reconnaissance (Sentinel rule scanner_user_agent, LOW;
+      MITRE ATT&CK T1595 Active Scanning).
+    references: ["MITRE ATT&CK T1595 (Active Scanning)", "OWASP OAT-014 (Vulnerability Scanning)"]
+
+  log_analyzer.high_request_rate:
+    title: "High request rate from $ip (up to $peak requests in $window_seconds s)"
+    explanation: >-
+      $ip made $count request(s) between $first_seen and $last_seen, peaking at $peak
+      within $window_seconds seconds. Few people click that fast: this is usually a bot,
+      a scraper, a brute-force tool or an attempt to overload the site.
+    remediation: |-
+      - Rate-limit per client at the proxy (nginx limit_req) or WAF.
+      - Protect login and search endpoints especially; add CAPTCHA or back-off there.
+      - Check whether the address belongs to a legitimate service (monitoring, CDN).
+    severity: MEDIUM
+    severity_rationale: >-
+      $threshold or more requests from one address within $window_seconds s (Sentinel rule
+      high_request_rate, MEDIUM: possible brute force or application-layer DoS; OWASP
+      Automated Threats).
+    references: ["OWASP Automated Threats to Web Applications", "CWE-770"]
+
+  log_analyzer.error_spike:
+    title: "Spike of $count error responses at $first_seen"
+    explanation: >-
+      In $bucket_seconds seconds starting $first_seen the server sent $count error
+      response(s) out of $total requests ($classes). A burst of 4xx usually means
+      something is probing for paths or parameters that do not exist.
+    remediation: |-
+      - Look at which addresses and paths caused the errors in that window.
+      - Rate-limit or block the clients responsible.
+    severity: LOW
+    severity_rationale: >-
+      $threshold or more error responses in one $bucket_seconds s window, mostly 4xx
+      (Sentinel rule error_spike, LOW: probing, the application kept working).
+    references: ["NIST SP 800-92"]
+
+  log_analyzer.error_spike_5xx:
+    title: "Spike of $count error responses at $first_seen, mostly server errors"
+    explanation: >-
+      In $bucket_seconds seconds starting $first_seen the server sent $count error
+      response(s) out of $total requests ($classes). Server errors (5xx) mean the
+      application itself was failing: an outage, a bug triggered by crafted input, or
+      overload.
+    remediation: |-
+      - Check application logs for that window to find the failing component.
+      - If one client caused it, rate-limit or block it; if crafted input triggered the
+        errors, fix the input handling.
+    severity: MEDIUM
+    severity_rationale: >-
+      $threshold or more error responses in one $bucket_seconds s window with 5xx making up
+      half or more (Sentinel rule error_spike, MEDIUM: the application was failing).
+    references: ["NIST SP 800-92", "CWE-400"]
+
+  log_analyzer.more_sources:
+    title: "$more more source address(es) triggered: $rule_title"
+    explanation: >-
+      To keep the report readable, only the $shown most active addresses for this rule
+      have their own finding. The others are listed in the evidence.
+    remediation: Treat these addresses like the ones above for the same rule.
+    severity: INFO
+    severity_rationale: A grouping note; each address's severity is that of the rule above.
+    references: []
