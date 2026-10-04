@@ -15,8 +15,8 @@
 | 10 | Log analyzer | Not started (build 5th) | Stretch |
 | 11 | File integrity monitor | Not started (build 6th) | Stretch. Demo on a named volume, not a Windows bind mount. Add `beat` to the prod profile |
 | 12 | Playbook engine | Complete (merged, PR #19) | Built 1st of the remaining phases; 618 backend + 327 frontend tests; ADR 0009 |
-| 13 | Reporting & export | Complete, CI green (PR #20, awaiting merge) | 691 backend + 335 frontend tests; live playbook PDF verified; ADR 0010 |
-| 14 | Observability & polish | Not started (build 3rd) | Observability profile optional |
+| 13 | Reporting & export | Complete (merged, PR #20) | 691 backend + 335 frontend tests; live playbook PDF verified; ADR 0010 |
+| 14 | Observability & polish | Complete locally, awaiting PR/CI | 768 backend + 335 frontend tests; prod profile; fresh clone → demo in ~2.5 min; ADR 0011. Observability stack deferred (optional) |
 
 ## Build order (approved 2026-10-02, ADR 0009)
 
@@ -43,8 +43,8 @@ containers. See `docs/adr/0001-architecture-and-stack.md`.
   implemented; it would be the only network call in the local tools.
 - Existing dev installs: run `docker compose down` once so networks are recreated with the
   pinned subnets (ADR 0007).
-- Re-check that nginx's `connect-src 'self'` allows same-origin `wss:` in all target
-  browsers (Phase 14).
+- WebSockets under the production CSP were verified in Chromium and Firefox. WebKit could not be
+  checked over plain HTTP (no Secure cookies on http://localhost); re-check once TLS fronts nginx.
 - Existing dev volumes need the test DB once:
   `docker compose exec postgres sh /docker-entrypoint-initdb.d/02-test-db.sh`.
 - The access-log route template relies on a FastAPI 0.14x internal (ADR 0002). A test pins it.
@@ -55,10 +55,75 @@ containers. See `docs/adr/0001-architecture-and-stack.md`.
   test credentials, now allowlisted as exact literals in `.gitleaks.toml`.
 - LICENSE copyright holder (`Anshuman-Singh-14`) needs confirming by the repo owner.
 - The repo lives in OneDrive. Moving it to a non-synced path is recommended.
-- Reports have no retention policy yet (the app role cannot delete them by design). Decide
-  on retention, and how it is applied, in Phase 14.
+- Reports have no retention limit (the app role cannot delete them by design). Purging is an
+  owner-role maintenance task for the deployment's data policy (ADR 0011).
+- Optional observability profile (OpenTelemetry, Prometheus, Loki) deferred; revisit after
+  Phases 8–11 (ADR 0011).
 - Dev DB has leftover smoke-test admins (`p3smoke`, `p5smoke`, `e2ereports`). Disable them
-  from another admin account before any shared demo.
+  from another admin account before any shared demo (the load-test analysts and `analyst1`,
+  used for the README screenshots, are already disabled).
+
+## Phase 14 log
+
+- **Production profile** (`docker-compose.prod.yml`, an override file; ADR 0011):
+  - Images and entry point: runtime backend images, a static build served by unprivileged
+    nginx that proxies `/api`, `/health`, `/ready` and `/ws`, and nginx as the only published
+    port (8080).
+  - Hardening: read-only root filesystems with a `/tmp` tmpfs, `ENVIRONMENT=production`, and
+    2 uvicorn workers.
+  - Client IPs: nginx has a pinned address and is the only trusted proxy. The first version
+    trusted the whole edge subnet, which includes Docker's gateway, and the audit log showed
+    nginx's address as the client.
+- **Headers:** nginx adds its CSP and companion headers to the static app only; API responses
+  keep the API's stricter headers. Before this, every proxied header was duplicated
+  (`nosniff, nosniff`), and Sentinel's own checker flagged it. The API also gained
+  `Permissions-Policy`. Sentinel now passes its own header checker with zero findings above
+  INFO (`scripts/self_header_check.py`, in CI).
+- **Security test pass:**
+  - `tests/security/test_authz_matrix.py`: 41 routes, each with a declared minimum role; an
+    unclassified route fails the build; every protected route returns 401 when anonymous and
+    403 for each lower role (34 cases, each audited).
+  - `tests/security/test_security_headers.py`: headers on success and error responses; the
+    production API passes the built-in checker.
+  - Already covered: SSRF, scope bypass, redaction, CSV injection, forbidden calls, rate
+    limits, grants. Path traversal arrives with the first file tools (T16, Phases 10/11).
+  - pip-audit and npm audit: no known vulnerabilities.
+- **Audit noise fix:** refresh requests with no cookie (every anonymous page load) are no longer
+  audited, matching the existing rule for unauthenticated 401s; malformed cookies still are.
+- **Load test** (`scripts/load_test.py`, inside the api container), production profile on Docker
+  Desktop:
+  - 6 users × 15 runs: 90/90 completed, 19 quota 429s retried, create-run p95 61 ms.
+  - 8 users × 30 runs: 240/240 completed, 126 quota 429s retried, create-run p50/p95
+    36/62 ms, 0 5xx, audit chain verified across 1,221 events.
+  - CI runs 3 × 5 through nginx.
+- **Bootstrap:** `scripts/init-env.sh` and `scripts/init-env.ps1` generate every secret, refuse to
+  overwrite `.env`, and tolerate CRLF checkouts.
+- **README** rewritten:
+  - A 10-minute demo walkthrough, a features table, and 9 screenshots taken with Playwright
+    against the production profile.
+  - A Mermaid architecture diagram, the run flow, and the tech stack.
+  - Security design, production profile, development and testing, and troubleshooting
+    sections, plus an ethics statement.
+- **CI:** a new production-profile smoke job, covering:
+  - the bootstrap script and only port 8080 published;
+  - read-only roots, a non-root user and production mode, with `/docs` off;
+  - the self header check;
+  - a login and runs through nginx via the load-test script.
+
+  The backend job also lints `scripts/`.
+- **Docs:** ADR 0011, the final threat model (T64–T69, T14 now Done; only T16 remains,
+  reserved for P10/P11), CLAUDE.md commands, and `.env.example` (production variables).
+- **Local acceptance (2026-10-04):**
+  - Backend: 768 tests pass (unit + integration), with ruff, mypy and bandit clean. Frontend:
+    335 tests pass, with eslint, prettier, tsc and the build clean.
+  - Fresh clone (separate Compose project, `--no-cache` build, base images already local): clone
+    and `.env` 5 s, build 114 s, `up --wait` 26 s, admin 1 s, **146 s total**. The README
+    walkthrough then took 13 s and every outcome matched the README: the playbook led by the
+    HIGH self-signed certificate, a 21.8 KB PDF, 24 port-scan findings including
+    CVE-2011-2523, `8.8.8.8` refused with `scope_denied`, and the audit chain intact.
+    Base-image downloads on a truly new machine add roughly 350 MB.
+  - Chromium and Firefox: live run updates over WebSockets under the strict production CSP, with
+    no violations.
 
 ## Phase 13 log
 
