@@ -1,6 +1,6 @@
 [project]
 name = "sentinel-backend"
-version = "0.1.0"
+version = "1.0.0"
 description = "Sentinel API and workers: defensive security orchestration with educational findings."
 requires-python = "==3.12.*"
 # Exact pins keep builds reproducible and the supply chain auditable

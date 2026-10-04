@@ -325,6 +325,7 @@ production-profile smoke test that includes the self header check.
 - [`docs/adr/`](docs/adr): architecture decision records (0001–0012)
 - [`docs/threat-model.md`](docs/threat-model.md): STRIDE threat model
 - [`docs/PROGRESS.md`](docs/PROGRESS.md): phase-by-phase progress and acceptance evidence
+- [`CHANGELOG.md`](CHANGELOG.md): release history
 
 ## License
 
