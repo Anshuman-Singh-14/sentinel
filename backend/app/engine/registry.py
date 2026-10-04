@@ -37,6 +37,10 @@ class ToolDescriptor(BaseModel):
     is_active: bool
     required_role: Role
     params_schema: dict[str, Any]
+    # Installed but not usable yet (e.g. no provider API key configured).
+    available: bool = True
+    unavailable_reason: str | None = None
+    status: dict[str, Any] = {}
 
 
 class ToolRegistry:
@@ -65,19 +69,25 @@ class ToolRegistry:
         return [self._tools[key] for key in sorted(self._tools)]
 
     def catalogue(self) -> list[ToolDescriptor]:
-        return [
-            ToolDescriptor(
-                tool_id=tool.tool_id,
-                name=tool.name,
-                description=tool.description,
-                version=tool.version,
-                category=tool.category,
-                is_active=tool.is_active,
-                required_role=tool.required_role,
-                params_schema=tool.params_model.model_json_schema(),
+        descriptors: list[ToolDescriptor] = []
+        for tool in self.all():
+            availability = tool.availability()
+            descriptors.append(
+                ToolDescriptor(
+                    tool_id=tool.tool_id,
+                    name=tool.name,
+                    description=tool.description,
+                    version=tool.version,
+                    category=tool.category,
+                    is_active=tool.is_active,
+                    required_role=tool.required_role,
+                    params_schema=tool.params_model.model_json_schema(),
+                    available=availability.available,
+                    unavailable_reason=availability.reason,
+                    status=availability.details,
+                )
             )
-            for tool in self.all()
-        ]
+        return descriptors
 
     def discover(self, package: str = "app.tools") -> None:
         """Import every tool package so its registration line runs.

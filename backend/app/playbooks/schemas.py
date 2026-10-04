@@ -103,6 +103,7 @@ class StepInfo(BaseModel):
     tool_id: str
     tool_name: str | None
     available: bool
+    unavailable_reason: str | None = None
     optional: bool
     on_failure: str
     is_active: bool
