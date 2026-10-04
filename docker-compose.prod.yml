@@ -43,6 +43,9 @@ services:
       CORS_ORIGINS: ${PROD_ORIGIN:-http://localhost:8080}
       TRUSTED_PROXIES: ${SENTINEL_FRONTEND_IP:-10.231.1.10}/32
     ports: !reset []
+    # No source mount in production, but uploads still need the shared volume.
+    volumes: !override
+      - uploads:/data/uploads
 
   worker:
     <<: *prod-backend
@@ -50,6 +53,9 @@ services:
       ENVIRONMENT: production
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       CORS_ORIGINS: ${PROD_ORIGIN:-http://localhost:8080}
+    volumes: !override
+      - uploads:/data/uploads
+      - ${LOG_ROOT_HOST:-./backend/tests/fixtures/logs}:/data/logs:ro
 
   frontend:
     build:
