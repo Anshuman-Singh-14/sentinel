@@ -222,3 +222,17 @@ def test_cli_password_stdin_and_policy(
 
     monkeypatch.setattr("sys.stdin", io.StringIO(PASSWORD + "\n"))
     assert cli.main(["create-admin", "--username", "strong", "--password-stdin"]) == 1
+
+
+def test_cli_admin_exists_counts_only_active_admins(
+    db: Database, make_user: Callable[..., Any]
+) -> None:
+    assert cli.main(["admin-exists"]) == cli.NO_ADMIN_EXIT_CODE  # empty database
+    make_user("watcher", Role.VIEWER)
+    make_user("former", Role.ADMIN, is_active=False)
+    # Neither a non-admin nor a disabled admin counts.
+    assert cli.main(["admin-exists"]) == cli.NO_ADMIN_EXIT_CODE
+
+    make_user("boss", Role.ADMIN)
+    assert cli.main(["admin-exists"]) == 0
+    assert db.audit() == []  # read-only: the probe writes nothing
