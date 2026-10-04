@@ -23,9 +23,11 @@ import json
 import math
 import time
 from dataclasses import asdict, dataclass
-from typing import Any, Protocol
+from typing import Any
 
 import httpx
+
+from app.core.external import Cache, WindowLimiter
 
 MAX_CVES_PER_PRODUCT = 10
 MAX_DESCRIPTION_CHARS = 400
@@ -37,18 +39,6 @@ MAX_WINDOW_WAIT_SECONDS = 31.0
 
 class NvdUnavailable(Exception):
     """The NVD could not be queried; the message is user-safe."""
-
-
-class Cache(Protocol):
-    async def get(self, key: str) -> str | None: ...
-
-    async def set(self, key: str, value: str, ttl_seconds: int) -> None: ...
-
-
-class WindowLimiter(Protocol):
-    async def try_acquire(self, key: str, limit: int, window_seconds: int) -> float:
-        """0 if a request may go now, else seconds until the window resets."""
-        ...
 
 
 @dataclass(frozen=True, slots=True)
