@@ -1,6 +1,6 @@
 # Sentinel — Threat model
 
-STRIDE-style and updated every phase. **Last updated:** Phase 2 (2026-10-02).
+STRIDE-style and updated every phase. **Last updated:** Phase 13 (2026-10-04).
 
 ## 1. System overview
 
@@ -93,6 +93,12 @@ Networks: `edge` (frontend, api) and `internal` (api, worker, postgres, redis;
 | T55 | E | Code execution or data access through playbook templates | No template engine: strict reference grammar over plain JSON (no attribute access, calls or filters); backward-only references validated at load; size cap | Done (P12) |
 | T56 | E | Playbooks used to launder out-of-scope targets through later steps | Every step is created and executed through the same run service and worker scope check as a manual run; the target is pre-checked at start | Done (P12) |
 | T57 | D | Orchestrator deadlocking the worker pool by waiting on sub-tasks | Steps execute inline in one orchestrator task; Celery limits summed from the steps; shared per-user caps | Done (P12) |
+| T58 | T/E | CSV/formula injection: a banner, header or user agent such as `=HYPERLINK(...)` executing in an analyst's spreadsheet | Cells whose first (or first non-blank) character is `= + - @`, tab, CR, LF or a full-width look-alike get a leading `'`; every cell quoted; cells capped below Excel's limit. Applies to report CSVs and the audit-trail export; tested on real tool output and real audit rows | Done (P13) |
+| T59 | T/E | PDF report turning tool output into links, images or font tricks (ReportLab Paragraph markup) | All dynamic text escaped with `xml.sax.saxutils.escape` before reaching a Paragraph; raw data in `Preformatted` (no markup parsing); references printed, never linked; tests assert no `/Annot`, `/URI`, `/JavaScript` or `/Launch` in the output | Done (P13) |
+| T60 | I/R | Reports leaking findings without a trace | `report.exported`, `report.generated` and `report.downloaded` audited with the actor, format and SHA-256; download fails closed if the audit write fails; analyst+ to request, viewer+ to read (same as runs); `Cache-Control: no-store` | Done (P13) |
+| T61 | T | Stored report altered in the database, then served as genuine | SHA-256 recorded at generation and re-checked on every download; a mismatch is refused (500 `integrity_failed`) and audited as a security event; the app role cannot UPDATE or DELETE `report_blobs` | Done (P13) |
+| T62 | D | Report generation exhausting workers or storage | 10 report requests/min and 3 in flight per user; render in a thread under a 60 s timeout plus Celery soft/hard limits; output capped at 20 MB; PDF appendix and evidence truncated | Done (P13) |
+| T63 | T | Header injection or path tricks through the download filename | Filename built server-side from an ASCII slug (`[A-Za-z0-9._-]`); the frontend accepts a header filename only if it matches the same pattern | Done (P13) |
 
 ## 5. Accepted risks and environment notes
 
@@ -103,4 +109,5 @@ Networks: `edge` (frontend, api) and `internal` (api, worker, postgres, redis;
 - **Unauthenticated 401s are not audited.** Auditing them would let anonymous requests flood the audit table. Failed logins and refreshes are audited behind rate limits.
 - **Concurrent refreshes from two tabs** look like token reuse and revoke the session. The Phase 3 client single-flights refreshes.
 - **Per-IP limits behind a proxy** need `TRUSTED_PROXIES`, otherwise all users share one bucket.
+- **PDF reports use the standard Helvetica/Courier fonts.** Characters outside Latin-1 (CJK, Cyrillic, emoji) render as boxes in the PDF; the CSV, JSON and text exports keep them intact. Embedding a Unicode TTF would fix it at the cost of a bundled font file.
 - **Docker Desktop on Windows:** traceroute is best-effort, and FIM metadata on bind mounts is unreliable. See PROGRESS.md.
