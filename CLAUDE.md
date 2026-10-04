@@ -54,6 +54,9 @@ Sentinel is an educational and defensive platform. It does not replace professio
 ## Commands (keep this section updated as the project grows)
 
 ```bash
+python run.py                                   # one-file launcher: .env, build, start + lab, first admin, browser
+python run.py --prod | --no-lab | --logs | --stop | --reset   # variants (ADR 0013)
+python -m unittest discover -s tests/launcher   # launcher tests (host, stdlib only)
 docker compose up --build                       # full stack (runs migrations first)
 docker compose --profile lab up -d              # also start the scan-lab targets (lab-web, lab-banners, lab-redis)
 docker compose run --rm api pytest              # backend unit tests (integration tests skip)

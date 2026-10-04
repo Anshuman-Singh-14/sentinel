@@ -21,6 +21,7 @@
 ## Releases
 
 - **v1.0.0** (2026-10-04): capstone core (Phases 0–8, 12–14). See `CHANGELOG.md`.
+- **Unreleased** (2026-10-04): one-file launcher `python run.py` (chore, not a phase; ADR 0013).
 
 ## Build order (approved 2026-10-02, ADR 0009)
 
@@ -69,7 +70,28 @@ containers. See `docs/adr/0001-architecture-and-stack.md`.
   from another admin account before any shared demo (the load-test analysts and `analyst1`,
   used for the README screenshots, are already disabled).
 
-## Phase 8 log
+## Chore log: one-file launcher (2026-10-04, branch `chore/one-file-launcher`)
+
+- **What:** `run.py` at the repo root.
+  - Docker and Compose preflight.
+  - `.env` generation with `secrets.token_hex(32)`, `O_EXCL` and mode 0600.
+  - `compose up --wait`, then a wait for `/health`.
+  - First-admin prompt through the existing CLI's password prompt; the new
+    read-only `app.cli admin-exists` answers with exit 0 or 3.
+  - Browser open, plus the flags `--prod`, `--no-lab`, `--logs`, `--stop` and
+    `--reset`.
+- **Rule 1:** ADR 0013 allows `subprocess` in `run.py` only: argument lists,
+  `shell=False`, an absolute `docker` path, fixed commands, a validated
+  username as the only operator input, and timeouts on non-interactive calls.
+  CLAUDE.md records the exception.
+- **Tests:** 33 stdlib `unittest` tests with every docker call mocked, run on
+  the host and in CI. The integration test for `admin-exists` runs in the
+  compose test profile. CI has a new launcher step: ruff and mypy `--strict`
+  as Python 3.10 code, bandit `-ll`, and the unittest suite.
+- **Docs:** the README demo leads with `python run.py` and keeps the manual
+  steps as a fallback; CLAUDE.md commands, CHANGELOG and threat model T69
+  are updated.
+
 
 - **Order:** built after 12–14 (ADR 0009). ADR 0009 checklist items done: the playbook's
   `indicators: "{{ steps.dns.resolved_ips }}"` reference works unchanged, and the Phase 13
