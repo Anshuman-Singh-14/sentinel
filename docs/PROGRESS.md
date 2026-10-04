@@ -10,7 +10,7 @@
 | 5 | Task infra & DNS | Complete (merged, PR #14) | 404 backend + 311 frontend tests; live DNS run verified; ADR 0006 |
 | 6 | Scope policy & port scanner | Complete (merged, PR #15) | 498 backend + 319 frontend tests; live lab scan verified; ADR 0007 |
 | 7 | Header & TLS checker | Complete (merged, PR #16) | 570 backend tests; fixture servers + live lab verified; ADR 0008 |
-| 8 | Threat intel | Complete locally, awaiting PR/CI | 820 backend + 338 frontend tests; AbuseIPDB, VirusTotal, Shodan (mocked); playbook intel step live; ADR 0012 |
+| 8 | Threat intel | Complete, CI green (PR #22, awaiting merge) | 820 backend + 338 frontend tests; AbuseIPDB, VirusTotal, Shodan (mocked); playbook intel step live; ADR 0012 |
 | 9 | Network diagnostics | Not started (build 7th) | Stretch. Traceroute best-effort on Docker Desktop |
 | 10 | Log analyzer | Not started (build 5th) | Stretch |
 | 11 | File integrity monitor | Not started (build 6th) | Stretch. Demo on a named volume, not a Windows bind mount. Add `beat` to the prod profile |
