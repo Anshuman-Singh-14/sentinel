@@ -21,6 +21,11 @@ All notable changes to Sentinel. The format follows
 - `python -m app.cli admin-exists`: a read-only probe for the launcher (exit 0
   or 3).
 
+### Fixed
+- A second, page-level scrollbar appeared on longer pages and dragged the sidebar and top bar
+  out of view. Absolutely positioned screen-reader labels were escaping the app shell; the shell
+  and the content area now contain them, so only the content scrolls.
+
 Planned stretch phases, in the approved order (ADR 0009): 10 (log analyzer),
 11 (file integrity monitor), 9 (network diagnostics).
 

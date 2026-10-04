@@ -28,7 +28,11 @@ export function AppShell() {
   }, [menuOpen]);
 
   return (
-    <div className="flex h-screen overflow-hidden">
+    // `relative` on the shell and on <main>: absolutely positioned descendants
+    // (sr-only labels, popovers) must be contained here. Otherwise the browser
+    // positions them against the document, which then grows taller than the
+    // window and gets a second, page-level scrollbar that drags the whole shell.
+    <div className="relative flex h-screen overflow-hidden">
       <a
         href="#main"
         className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:rounded focus:bg-accent focus:px-3 focus:py-2 focus:text-on-accent"
@@ -37,7 +41,7 @@ export function AppShell() {
       </a>
 
       {/* Desktop sidebar */}
-      <aside className="hidden w-64 shrink-0 border-r border-border bg-panel lg:block">
+      <aside className="relative hidden w-64 shrink-0 border-r border-border bg-panel lg:block">
         <Sidebar />
       </aside>
 
@@ -57,7 +61,7 @@ export function AppShell() {
 
       <div className="flex min-w-0 flex-1 flex-col">
         <TopBar onOpenMenu={() => setMenuOpen(true)} />
-        <main id="main" tabIndex={-1} className="flex-1 overflow-y-auto p-4 lg:p-6">
+        <main id="main" tabIndex={-1} className="relative flex-1 overflow-y-auto p-4 lg:p-6">
           <Outlet />
         </main>
       </div>
