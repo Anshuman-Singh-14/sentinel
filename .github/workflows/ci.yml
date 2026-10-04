@@ -29,6 +29,20 @@ jobs:
       - name: ruff and bandit on the operational scripts (scripts/)
         run: |
           docker run --rm -v "$PWD/scripts:/scripts:ro" sentinel-backend:ci sh -c "ruff check --no-cache --config pyproject.toml /scripts && ruff format --no-cache --config pyproject.toml --check /scripts && bandit -q -r /scripts -ll"
+      # run.py is the one file allowed to call subprocess (ADR 0013). It runs on
+      # the operator's host, so it targets Python 3.10 and is checked on its own.
+      - name: Launcher (run.py) ruff, mypy, bandit, unit tests
+        run: |
+          docker run --rm -w /launcher \
+            -v "$PWD/run.py:/launcher/run.py:ro" \
+            -v "$PWD/.env.example:/launcher/.env.example:ro" \
+            -v "$PWD/tests/launcher:/launcher/tests/launcher:ro" \
+            sentinel-backend:ci sh -c "\
+              ruff check --no-cache --config /app/pyproject.toml --target-version py310 run.py tests/launcher && \
+              ruff format --no-cache --config /app/pyproject.toml --target-version py310 --check run.py tests/launcher && \
+              mypy --strict --python-version 3.10 --no-incremental run.py tests/launcher/test_run.py && \
+              bandit -q -r run.py tests/launcher -ll && \
+              python -m unittest discover -s tests/launcher -v"
       - name: mypy
         run: docker run --rm sentinel-backend:ci mypy app tests alembic
       - name: bandit
