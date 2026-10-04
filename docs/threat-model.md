@@ -1,18 +1,29 @@
 # Sentinel — Threat model
 
-STRIDE-style and updated every phase. **Last updated:** Phase 13 (2026-10-04).
+STRIDE-style and updated every phase. **Last updated:** Phase 14 (2026-10-04), the
+final pass for the capstone core. Phases 8–11 (threat intel, log analysis, FIM,
+network diagnostics) will add their own rows (T16 is already reserved for them).
 
 ## 1. System overview
 
 ```
- Browser ──► frontend (Vite dev / nginx) ──► api (FastAPI) ──► postgres ◄── migrate (one-shot, schema owner)
-                                               │  ▲
-                                               ▼  │ pub/sub
-                                             redis ◄── worker (Celery) ──► [targets, Phase 5+]
+                  127.0.0.1 only
+ Browser ──────► frontend ───────────────► api (FastAPI) ──► postgres ◄── migrate (one-shot,
+                 Vite dev server (dev)        │  ▲            (app role:          schema owner)
+                 nginx + static build (prod)  ▼  │ pub/sub     DML only)
+                                            redis ◄── worker (Celery) ──► lab targets (lab network)
+                                                                   └────► internet (egress network:
+                                                                          DNS, NVD, in-scope targets)
 ```
 
-Networks: `edge` (frontend, api) and `internal` (api, worker, postgres, redis;
-`internal: true`, so no egress). Host ports bind to `127.0.0.1` only.
+Networks:
+- `edge`: frontend and api. In production nginx has a pinned address and is the
+  only published port.
+- `internal`: api, worker, postgres, redis, migrate. `internal: true`, so no egress.
+- `egress`: worker only, for outbound tool traffic.
+- `lab`: worker and the lab targets. `internal: true`.
+
+Host ports bind to `127.0.0.1` only. The production profile is described in ADR 0011.
 
 ## 2. Assets
 
@@ -31,6 +42,9 @@ Networks: `edge` (frontend, api) and `internal` (api, worker, postgres, redis;
 2. API ↔ worker (via Redis): the messages are trusted, but Celery accepts JSON only.
 3. Worker ↔ external targets and APIs: responses are hostile data (banners, headers, intel payloads).
 4. Containers ↔ host: there are bind mounts in dev, and the host is not exposed to the LAN.
+5. nginx ↔ API (production): the API trusts `X-Forwarded-For` from nginx's pinned address only.
+6. Exported reports ↔ their readers: report content (banners, headers) is hostile data
+   rendered into PDF and CSV (T58, T59).
 
 ## 4. Threats and mitigations
 
@@ -49,7 +63,7 @@ Networks: `edge` (frontend, api) and `internal` (api, worker, postgres, redis;
 | T11 | E | SSRF via header checker or redirects; DNS rebinding | URL shape rules (http/https, allowlisted ports, no credentials/control chars); scope + hard denylist on every hop; IP pinning with Host/SNI; manual redirects re-validated and re-scoped (denials audited); `trust_env=False`; capped bodies/headers (ADR 0008) | Done (P7) |
 | T12 | S | Cross-Site WebSocket Hijacking | Origin allowlist on the handshake plus a single-use, 30-second, run-bound ticket from a CSRF-checked POST, redeemed with GETDEL (ADR 0006) | Done (P5) |
 | T13 | R | Users deny running scans | Hash-chained, append-only audit log with user, session, IP and request ID on every event (ADR 0003) | Done (P2) |
-| T14 | D | Resource exhaustion (huge scans, uploads, slow targets) | Timeouts and caps everywhere. Celery soft/hard limits and prefetch 1. Per-user quotas | Partial (P0 Celery limits) |
+| T14 | D | Resource exhaustion (huge scans, uploads, slow targets) | Timeouts and caps everywhere; Celery soft/hard limits and prefetch 1; per-user run, playbook and report quotas (T43, T62). Load-tested in P14: 8 users × 30 concurrent runs, all completed, quotas refused 126 requests and the clients retried them, no 5xx | Done (P14); uploads arrive with P10/P11 |
 | T15 | I | Secrets in logs | Mandatory redaction processor on every record, including stdlib loggers, tracebacks and the uvicorn supervisor (ADR 0002) | Done (P1) |
 | T16 | T | Path traversal in log analyzer or FIM | PathGuard and read-only mounts | Planned (P10/P11) |
 | T17 | T | Supply-chain compromise | Exact pins and lockfiles, pip-audit, npm audit, Dependabot | Done (P0) |
@@ -99,6 +113,12 @@ Networks: `edge` (frontend, api) and `internal` (api, worker, postgres, redis;
 | T61 | T | Stored report altered in the database, then served as genuine | SHA-256 recorded at generation and re-checked on every download; a mismatch is refused (500 `integrity_failed`) and audited as a security event; the app role cannot UPDATE or DELETE `report_blobs` | Done (P13) |
 | T62 | D | Report generation exhausting workers or storage | 10 report requests/min and 3 in flight per user; render in a thread under a 60 s timeout plus Celery soft/hard limits; output capped at 20 MB; PDF appendix and evidence truncated | Done (P13) |
 | T63 | T | Header injection or path tricks through the download filename | Filename built server-side from an ASCII slug (`[A-Za-z0-9._-]`); the frontend accepts a header filename only if it matches the same pattern | Done (P13) |
+| T64 | E/I | Production deployed with dev settings: source mounts, `--reload`, `/docs`, API port exposed, writable filesystems | Separate production override (`docker-compose.prod.yml`): runtime image, no mounts or reload, read-only root filesystems, `ENVIRONMENT=production` (no docs, HSTS, insecure cookies refused), only nginx published. All checked in the CI production smoke job | Done (P14) |
+| T65 | S/R | Forged client IPs via `X-Forwarded-For` in audit records and per-IP limits | The API trusts XFF only from nginx's pinned address (not the edge subnet, which contains Docker's gateway); verified that audit records show the real peer | Done (P14) |
+| T66 | T | Weak or duplicated security headers on the production front end | nginx sends a strict CSP and the companion headers on the app; API responses keep the API's own stricter headers (no duplicates). CI runs Sentinel's own header checker against the live front end, and any finding above INFO fails the job | Done (P14) |
+| T67 | E | A route shipped without an authorization decision | `test_authz_matrix.py` lists every route with its minimum role; a new unclassified route fails the build. Every protected route is checked for 401 (anonymous) and 403 (each lower role, audited) | Done (P14) |
+| T68 | D/R | Audit trail flooded with anonymous noise, hiding real events | Cookie-less refresh probes (every anonymous page load) are no longer audited, matching the rule for unauthenticated 401s; malformed refresh cookies still are; per-IP refresh limit unchanged | Done (P14) |
+| T69 | I | Weak or reused secrets in fresh installs | `scripts/init-env.sh` / `init-env.ps1` generate every secret from the OS CSPRNG, refuse to overwrite an existing `.env`, and create it owner-readable | Done (P14) |
 
 ## 5. Accepted risks and environment notes
 
@@ -109,5 +129,15 @@ Networks: `edge` (frontend, api) and `internal` (api, worker, postgres, redis;
 - **Unauthenticated 401s are not audited.** Auditing them would let anonymous requests flood the audit table. Failed logins and refreshes are audited behind rate limits.
 - **Concurrent refreshes from two tabs** look like token reuse and revoke the session. The Phase 3 client single-flights refreshes.
 - **Per-IP limits behind a proxy** need `TRUSTED_PROXIES`, otherwise all users share one bucket.
+- **The production profile serves plain HTTP on localhost.** TLS termination (and with it,
+  meaningful HSTS) is left to the deployment: a reverse proxy or load balancer in front of
+  nginx. Safari and WebKit do not send `Secure` cookies to `http://localhost`, so they need
+  TLS (or `COOKIE_SECURE=false` in development) to sign in.
+- **Reports have no retention limit.** The app role cannot delete reports (they are a
+  record of what was disclosed). Purging old reports is an owner-role maintenance task;
+  retention rules are left to the deployment's data policy.
+- **The observability profile (OpenTelemetry, Prometheus, Loki) is not built.** The spec
+  marks it optional. JSON logs with request IDs on every line (shippable by any Docker
+  logging driver) are the current answer.
 - **PDF reports use the standard Helvetica/Courier fonts.** Characters outside Latin-1 (CJK, Cyrillic, emoji) render as boxes in the PDF; the CSV, JSON and text exports keep them intact. Embedding a Unicode TTF would fix it at the cost of a bundled font file.
 - **Docker Desktop on Windows:** traceroute is best-effort, and FIM metadata on bind mounts is unreliable. See PROGRESS.md.

@@ -267,8 +267,14 @@ class AuthService:
         if not limit.allowed:
             await self._refresh_failed(actor, "rate_limited", outcome=Outcome.DENIED)
             raise_if_limited(limit)
-        if refresh_token is None or not is_plausible_token(refresh_token):
-            await self._refresh_failed(actor, "missing_token")
+        if refresh_token is None:
+            # No cookie at all is an anonymous visitor (the SPA probes the
+            # session on every page load), not a refresh attempt. Like other
+            # unauthenticated 401s it is not audited: it would flood the trail
+            # (threat model, accepted risks). The per-IP limit above still applies.
+            raise AuthenticationRequired
+        if not is_plausible_token(refresh_token):
+            await self._refresh_failed(actor, "malformed_token")
             raise AuthenticationRequired
 
         token_hash = hash_token(refresh_token)

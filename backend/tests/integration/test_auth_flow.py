@@ -223,10 +223,17 @@ def test_refresh_token_reuse_revokes_the_session_and_alerts(
     assert db.audit("auth.token.refresh")[-1]["reason"] == "session_revoked"
 
 
-def test_refresh_without_cookie_is_audited(client: TestClient, db: Database) -> None:
-    assert client.post("/api/v1/auth/refresh").status_code == 401
+def test_refresh_without_cookie_is_not_audited_but_a_bad_cookie_is(
+    client: TestClient, db: Database
+) -> None:
+    # Anonymous visitors probe the session on every page load: not an attempt.
+    assert client.post("/api/v1/auth/refresh", headers={"Origin": ORIGIN}).status_code == 401
+    assert db.audit("auth.token.refresh") == []
+    # A cookie that is present but cannot be a token (oversized) is worth recording.
+    oversized = {"Origin": ORIGIN, "Cookie": f"{REFRESH_COOKIE}={'x' * 2000}"}
+    assert client.post("/api/v1/auth/refresh", headers=oversized).status_code == 401
     (event,) = db.audit("auth.token.refresh")
-    assert event["reason"] == "missing_token"
+    assert event["reason"] == "malformed_token"
     assert event["outcome"] == "FAILURE"
 
 

@@ -1,65 +1,323 @@
 # Sentinel
 
-A defensive security orchestration and education platform. Sentinel runs
-diagnostics, audits, file-integrity checks and threat-intel lookups, then
-translates raw output into plain-language findings with severity rationale and
-remediation.
+**A defensive security platform that explains what it finds.**
 
-> Sentinel is for defensive and educational use only. Run active tools only
-> against systems you own or have written permission to test.
+Tools like Nmap and Wireshark produce raw data that takes an expert to read.
+Sentinel runs defensive checks (DNS and email security, port and banner
+scanning with CVE matching, HTTP security headers and TLS) and multi-step audit
+playbooks, then turns the raw output into findings anyone can act on:
 
-**Status:** Phase 2 (identity, RBAC & audit trail). See [`docs/PROGRESS.md`](docs/PROGRESS.md).
+- **what was found**, in plain language;
+- **how severe it is, and why**: every severity cites the standard it was decided by
+  (CVSS v3.1 bands, OWASP, CWE, NIST);
+- **how to fix it**, often with a ready-to-paste config snippet;
+- **the evidence and raw data**, for advanced users;
+- **a report**: PDF, CSV, JSON or plain text.
 
-## Quick start
+It also ships browser-only utilities (password analyzer, JWT inspector, hash
+tool, encoder/decoder) that never send their input anywhere.
 
-Requires Docker Desktop (or Docker Engine with Compose v2).
+> **Ethics and authorised use.** Sentinel is for defence and education. Its
+> active tools (port scanner, header and TLS checker) send traffic to the
+> target, so they only run against targets an administrator has put in scope,
+> after the user has accepted an authorised-use statement, and every run is
+> attributed to a named user in a tamper-evident audit log. Only scan systems
+> you own or have written permission to test. Sentinel contains no exploitation
+> or offensive capability, and it is not a replacement for professional tooling
+> or a penetration test.
+
+![Playbook run with unified findings](docs/screenshots/04-playbook-run.png)
+
+**Status:** capstone core complete (Phases 0–7, 12, 13, 14). Threat intel, log
+analysis, file integrity monitoring and network diagnostics (Phases 8–11) are
+planned. See [`docs/PROGRESS.md`](docs/PROGRESS.md).
+
+---
+
+## Contents
+
+1. [Demo in 10 minutes](#demo-in-10-minutes)
+2. [What you can do](#what-you-can-do)
+3. [Screenshots](#screenshots)
+4. [Architecture](#architecture)
+5. [Security design](#security-design)
+6. [Production profile](#production-profile)
+7. [Development and testing](#development-and-testing)
+8. [Troubleshooting](#troubleshooting)
+9. [Documentation](#documentation)
+
+---
+
+## Demo in 10 minutes
+
+You need **Docker Desktop** (or Docker Engine with Compose v2.24+) and Git.
+Nothing else is installed on your machine. The first build downloads images and
+dependencies, which takes 3–6 minutes on a typical connection.
+
+**1. Clone and create `.env`** (random secrets are generated for you):
 
 ```bash
-cp .env.example .env     # then replace every CHANGE_ME (see comments in the file)
-docker compose up --build
+git clone https://github.com/Anshuman-Singh-14/sentinel.git
+cd sentinel
+sh scripts/init-env.sh                       # macOS, Linux, WSL, Git Bash
 ```
 
-- Frontend: http://localhost:5173
-- API health: http://localhost:8000/health · readiness: http://localhost:8000/ready
-- API docs (non-production only): http://localhost:8000/docs
-- Tool catalogue: http://localhost:8000/api/v1/tools
+On Windows PowerShell, run `powershell -ExecutionPolicy Bypass -File scripts\init-env.ps1` instead.
+To do it by hand: copy `.env.example` to `.env` and replace each `CHANGE_ME`
+with a long random hex string.
 
-`docker compose up` runs database migrations first (the one-shot `migrate`
-service), then starts the API and worker.
+**2. Start everything, including the lab targets:**
 
-Create the first administrator (there is no default account or password):
+```bash
+docker compose --profile lab up --build -d --wait
+```
+
+This runs the database migrations, then starts the API, the worker, the web
+app, and four deliberately simple **lab targets** on an isolated network: an
+nginx site, an HTTPS site with a self-signed certificate, a fake-banner server
+that pretends to run outdated FTP/SSH/SMTP/MySQL, and an open Redis.
+
+**3. Create the first administrator.** There is no default account:
 
 ```bash
 docker compose exec api python -m app.cli create-admin --username admin
 ```
 
-Then log in with `POST /api/v1/auth/login`. The web login page arrives in Phase 3.
+**4. Open http://localhost:5173 and sign in.** Then:
 
-## Development
+| Step | Where | What you will see |
+|---|---|---|
+| 1 | **Playbooks → Web Defensive Audit** | Accept the authorised-use statement (once). Target: `lab-https`; Website URL: `http://lab-https:8080/`. Start |
+| 2 | The playbook run page | Steps go live over a WebSocket: DNS, web port scan, headers and TLS. The DNS step fails with a clear reason (`lab-https` is not a public domain), and the audit continues |
+| 3 | **Unified findings** | De-duplicated findings from every step, led by the HIGH self-signed certificate, each with explanation, severity rationale and fix |
+| 4 | **Reports → Export as PDF** | A report generated by the worker, with cover page, executive summary and severity chart. Download it |
+| 5 | **Port Scanner & Banner Grabber** | Target `lab-banners`, preset `custom`, ports `21,22,23,25,3306`. Banners, CPE fingerprints and CVE matches with honest confidence levels |
+| 6 | **Local tools → Password analyzer** | Runs entirely in your browser; the badge says so and the tests prove it |
+| 7 | **Admin → Audit log** | Every action above, hash-chained. Press **Verify chain**, and export to CSV |
 
-```bash
-docker compose run --rm api pytest                       # backend unit tests (integration tests skip)
-docker compose --profile test run --rm test              # unit + integration tests (real Postgres/Redis)
-docker compose run --rm api sh -c "ruff check . && mypy app tests alembic && bandit -r app -ll -c pyproject.toml"
-docker compose run --rm migrate alembic upgrade head     # apply migrations manually
-docker compose exec frontend npm run test                # frontend tests
-docker compose exec frontend npm run lint
-pre-commit install                                       # git hooks (needs frontend/node_modules: cd frontend && npm ci)
+Also try a target that is **not** in scope, such as `8.8.8.8` in the port
+scanner. It is refused before any packet is sent, and the refusal is a
+security event in the audit log.
+
+To stop: `docker compose --profile lab down`. Add `-v` to delete the data as well.
+
+## What you can do
+
+| Area | Capability |
+|---|---|
+| **DNS & email security** | A/AAAA/MX/NS/TXT/CAA, SPF, DMARC, dangling CNAMEs, name-server redundancy, private-IP exposure. Uses explicit public resolvers, never Docker's internal DNS |
+| **Port scanner** | TCP connect scan with bounded concurrency, presets or custom lists, passive banners, CPE fingerprinting, NVD CVE matching (cached and rate-limited) with CVSS-based severity |
+| **Header & TLS checker** | HTTPS and redirects, certificate validity, chain, name and expiry, TLS 1.0/1.1 support, HSTS, CSP weakness analysis, clickjacking, cookie flags. Includes nginx and Apache snippets |
+| **Playbooks** | YAML-defined multi-step audits with safe step references, stop/continue on failure, optional steps, cancellation, and unified de-duplicated findings |
+| **Reports** | PDF, CSV, JSON and TXT from any finished run or playbook, generated by the worker, SHA-256-verified on download, audited |
+| **Local tools** | Password analyzer (zxcvbn), JWT inspector with local signature verification, hash tool, encoder/decoder. All 100% in-browser |
+| **Identity & audit** | Users and roles (viewer, analyst, admin), sessions, a hash-chained append-only audit log, security alerts, audit export |
+| **Scope policy** | Admin-managed allowed CIDRs and domains, a hard denylist of Sentinel's own infrastructure, and the authorised-use acknowledgement |
+
+## Screenshots
+
+| | |
+|---|---|
+| ![Dashboard](docs/screenshots/02-dashboard.png) **Dashboard** | ![Playbooks](docs/screenshots/03-playbooks.png) **Playbook catalogue** |
+| ![Port scan](docs/screenshots/05-port-scan-findings.png) **Port scan findings with CVE matches** | ![Reports](docs/screenshots/06-reports.png) **Report history** |
+| ![Password analyzer](docs/screenshots/07-password-analyzer.png) **Local-only password analyzer** | ![Audit log](docs/screenshots/08-audit-log.png) **Hash-chained audit log, chain verified** |
+| ![Scope denied](docs/screenshots/09-scope-denied.png) **Out-of-scope target refused before any traffic** | ![Login](docs/screenshots/01-login.png) **Sign-in (no default account)** |
+
+## Architecture
+
+```mermaid
+flowchart LR
+    user([Browser])
+
+    subgraph edge [edge network]
+        fe["frontend<br/>Vite dev server / nginx (prod)"]
+    end
+
+    subgraph internal ["internal network (no internet)"]
+        api["api<br/>FastAPI"]
+        pg[("postgres<br/>least-privilege roles")]
+        rd[("redis<br/>broker, pub/sub, rate limits")]
+        mig["migrate<br/>one-shot Alembic"]
+    end
+
+    worker["worker<br/>Celery: tools, playbooks, reports"]
+
+    subgraph lab ["lab network (isolated)"]
+        targets["lab-web · lab-https<br/>lab-banners · lab-redis"]
+    end
+
+    internet((Internet<br/>DNS, NVD, in-scope targets))
+
+    user -->|"HTTP, WebSocket<br/>127.0.0.1 only"| fe
+    fe -->|"/api, /ws proxy"| api
+    api --> pg
+    api <-->|"tasks, live progress"| rd
+    worker <--> rd
+    worker --> pg
+    mig --> pg
+    worker -->|"scope-checked, pinned IPs"| targets
+    worker -->|"egress network"| internet
 ```
 
-The integration tests use a separate `sentinel_test` database, created when the
-Postgres volume is first initialised. For an older volume, create it once with
-`docker compose exec postgres sh /docker-entrypoint-initdb.d/02-test-db.sh`.
+**How a run flows:**
 
-If frontend dependencies change, recreate the `node_modules` volume:
-`docker compose down && docker volume rm sentinel_frontend_node_modules`.
+1. The browser posts `/api/v1/tools/{tool}/runs`.
+2. The API authenticates the user, checks the role and CSRF token, validates the
+   parameters against the tool's schema, checks authorisation and scope, and
+   writes the run row and its audit event in one transaction. Only then does it
+   queue a Celery task, which carries the run id and nothing else.
+3. The worker claims the run with a compare-and-set, re-checks scope
+   authoritatively after DNS resolution, and runs the tool against the pinned
+   addresses.
+4. While the tool runs, the worker publishes progress to Redis, and the API
+   relays it to the browser over a WebSocket.
+5. The tool's **translator** turns raw output into the standard `ToolResult`
+   with educational findings. The findings are stored and the run is audited.
+
+Every tool is a self-contained module registered with the tool registry. Adding
+one does not require changing core code. Details:
+[`docs/spec/01-architecture.md`](docs/spec/01-architecture.md) and the ADRs.
+
+| Layer | Technology |
+|---|---|
+| Frontend | React 19, TypeScript 6, Vite, Tailwind 4, TanStack Query, React Router |
+| API | Python 3.12, FastAPI, Pydantic v2, SQLAlchemy 2 (async), Alembic |
+| Workers | Celery 5 on Redis 7.4 (JSON serialisation only) |
+| Data | PostgreSQL 16 |
+| Reports | ReportLab (PDF), stdlib csv and json |
+| Quality | pytest (≈700 tests), vitest (≈335), ruff, mypy (strict), bandit, pip-audit, eslint, prettier, gitleaks, GitHub Actions |
+
+## Security design
+
+Sentinel is itself a security tool, so it is held to the standard it checks
+for. The full STRIDE threat model, with 69 numbered threats and their
+mitigations, is in [`docs/threat-model.md`](docs/threat-model.md). Highlights:
+
+- **No shell, ever.** Tools use `socket`, `asyncio`, `dnspython`, `httpx` and
+  `ssl`. A static test and bandit fail the build on `subprocess`, `eval`,
+  `exec`, `pickle` and unsafe YAML. Celery accepts JSON only.
+- **Scope before traffic.** Active tools run only against admin-approved CIDRs
+  or domains, after DNS resolution. Sentinel's own subnets, cloud metadata and
+  link-local ranges are permanently denied. The checked addresses are pinned,
+  which defeats DNS rebinding. Redirects are re-validated hop by hop (SSRF
+  guard).
+- **Identity and sessions.** Passwords are hashed with Argon2id.
+  - Sessions use opaque tokens in `__Host-` cookies with rotating refresh
+    tokens; reuse of a refresh token revokes the session.
+  - CSRF tokens are bound to the session, and Origin is checked.
+  - Repeated failed logins lock the account with exponential backoff, and logins
+    are rate-limited per IP. Responses never reveal whether a username exists.
+  - Roles are viewer, analyst and admin, and `tests/security/test_authz_matrix.py`
+    checks every route against every role.
+- **Tamper-evident audit.** Every security-relevant action is recorded with
+  who, what, target, outcome and request ID.
+  - Each row is SHA-256-chained to the previous one, and the app's database
+    role cannot UPDATE or DELETE audit rows (a trigger enforces it).
+  - The whole chain can be verified on demand.
+  - Logs and audit details pass through a redaction processor first.
+- **Least privilege everywhere.**
+  - The app connects as a role with no DDL rights; migrations run as a separate
+    owner role in a one-shot container.
+  - Containers run as non-root, with all capabilities dropped and
+    `no-new-privileges`. In production their root filesystems are read-only.
+  - Postgres and Redis are on a network with no internet access, and no ports
+    are published beyond 127.0.0.1.
+- **Hostile output handled safely.** Tool output is rendered as escaped text
+  (never `dangerouslySetInnerHTML`), PDFs escape all markup, CSV exports are
+  formula-injection safe, and downloads use server-built ASCII filenames.
+- **Sentinel passes its own header checker.** The production front end and API
+  are scanned with the built-in checker in CI (`scripts/self_header_check.py`),
+  with zero findings above INFO.
+- **Client-side tools are provably local.** A static import-graph test and a
+  runtime test with every network API trapped prove the password, JWT, hash and
+  encoding tools never send data anywhere.
+
+Design decisions and the reasons for them are recorded in
+[`docs/adr/`](docs/adr) (ADR 0001–0011).
+
+## Production profile
+
+The default stack is for development: hot reload, source mounted into
+containers, API on its own port. The production profile is an override file:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build -d --wait
+docker compose -f docker-compose.yml -f docker-compose.prod.yml exec api \
+    python -m app.cli create-admin --username admin
+```
+
+Then open **http://localhost:8080**. The differences are:
+
+- **Images:** backend containers use the slim `runtime` image (code baked in, no
+  dev tools, no reload), and the web app is a static build served by
+  unprivileged nginx.
+- **One entry point:** nginx proxies `/api` and `/ws` to the API and is the only
+  published port.
+- **Hardening:**
+  - Root filesystems are read-only.
+  - `ENVIRONMENT=production`: JSON logs, no `/docs`, HSTS on API responses, and
+    insecure cookie settings refused at startup.
+  - The API trusts `X-Forwarded-For` only from nginx's pinned address, so audit
+    records show the real client IP.
+
+For a real deployment, put TLS in front of nginx and set `PROD_ORIGIN` to the
+public `https://` origin. Production secrets belong in Docker secrets or your
+platform's secret store rather than a `.env` file. Rationale: ADR 0011.
+
+## Development and testing
+
+```bash
+docker compose up --build                                   # dev stack (http://localhost:5173)
+docker compose run --rm api pytest                          # backend unit tests
+docker compose --profile test run --rm test                 # backend unit + integration (real Postgres/Redis)
+docker compose run --rm api sh -c "ruff check . && mypy app tests alembic && bandit -r app -ll -c pyproject.toml"
+docker compose exec frontend npm run test                   # frontend tests
+docker compose exec frontend npm run lint
+docker compose run --rm migrate alembic revision --autogenerate -m "msg"   # new migration
+```
+
+Checks against a running stack, executed inside the api container so nothing is
+installed on the host:
+
+```bash
+# Load test: N users starting runs concurrently through the real quotas and workers.
+LOADTEST_ADMIN=admin LOADTEST_PASSWORD='...' \
+  docker compose exec -T -e LOADTEST_ADMIN -e LOADTEST_PASSWORD api python - < scripts/load_test.py
+
+# Sentinel's header checker against its own production front end.
+docker compose -f docker-compose.yml -f docker-compose.prod.yml exec -T api \
+  python - < scripts/self_header_check.py
+```
+
+Load-test results (8 users × 30 runs on Docker Desktop, production profile):
+240/240 runs completed and 126 requests were refused by the per-user quota and
+retried, as designed. Creating a run took 36 ms at p50 and 62 ms at p95, with no
+5xx responses, and the audit chain verified across 1,221 events.
+
+CI (`.github/workflows/ci.yml`) runs the backend and frontend gates, a secret
+scan, a development-stack smoke test with integration tests, and a
+production-profile smoke test that includes the self header check.
+
+## Troubleshooting
+
+| Problem | Fix |
+|---|---|
+| `Bind for 127.0.0.1:5173 failed: port is already allocated` | Change `FRONTEND_PORT` (or `API_PORT`, `PROD_PORT`) in `.env` |
+| `Pool overlaps with other one on this address space` | Another Docker network uses `10.231.x.x`. Change the `SENTINEL_*_SUBNET` (and `SENTINEL_*_IP`) values in `.env` |
+| Hot reload does not pick up changes (Windows/macOS) | Keep `VITE_USE_POLLING=true` and `WATCHFILES_FORCE_POLLING=true` (the defaults) |
+| Integration tests skip or fail on an older volume | Create the test database once: `docker compose exec postgres sh /docker-entrypoint-initdb.d/02-test-db.sh` |
+| Frontend dependency changed | `docker compose exec frontend npm ci` (the `node_modules` volume is not refreshed by a rebuild) |
+| The DNS tool times out | Your network blocks public DNS. Set `DNS_NAMESERVERS=` (empty) in `.env` to use the system resolver |
+| Login works but nothing else does in Safari on `http://localhost` | Safari does not send `Secure` cookies over HTTP. Use another browser, or set `COOKIE_SECURE=false` for development only |
+| Slow file watching or locked files | Keep the checkout outside OneDrive or Dropbox folders |
 
 ## Documentation
 
-- [`CLAUDE.md`](CLAUDE.md): engineering rules
-- [`docs/spec/`](docs/spec): architecture, modules, logging/audit, security, phases
-- [`docs/adr/`](docs/adr): architecture decision records
-- [`docs/threat-model.md`](docs/threat-model.md)
+- [`CLAUDE.md`](CLAUDE.md): engineering rules for the project
+- [`docs/spec/`](docs/spec): architecture, modules, logging and audit, security, phases
+- [`docs/adr/`](docs/adr): architecture decision records (0001–0011)
+- [`docs/threat-model.md`](docs/threat-model.md): STRIDE threat model
+- [`docs/PROGRESS.md`](docs/PROGRESS.md): phase-by-phase progress and acceptance evidence
 
 ## License
 

@@ -28,6 +28,8 @@ SECURITY_HEADERS = {
     "X-Frame-Options": "DENY",
     "Referrer-Policy": "no-referrer",
     "Cross-Origin-Resource-Policy": "same-origin",
+    # The API never needs powerful browser features; deny them outright.
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
 }
 # The API only returns JSON, so the page-level CSP can deny everything.
 API_CSP = "default-src 'none'; frame-ancestors 'none'"

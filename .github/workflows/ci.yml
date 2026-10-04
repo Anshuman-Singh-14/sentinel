@@ -26,6 +26,9 @@ jobs:
         run: docker build --target dev -t sentinel-backend:ci backend
       - name: ruff
         run: docker run --rm sentinel-backend:ci sh -c "ruff check . && ruff format --check ."
+      - name: ruff and bandit on the operational scripts (scripts/)
+        run: |
+          docker run --rm -v "$PWD/scripts:/scripts:ro" sentinel-backend:ci sh -c "ruff check --no-cache --config pyproject.toml /scripts && ruff format --no-cache --config pyproject.toml --check /scripts && bandit -q -r /scripts -ll"
       - name: mypy
         run: docker run --rm sentinel-backend:ci mypy app tests alembic
       - name: bandit
@@ -165,3 +168,57 @@ jobs:
       - name: Tear down
         if: always()
         run: docker compose down -v
+
+  prod-smoke:
+    name: Production profile smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [backend, frontend]
+    env:
+      COMPOSE: docker compose -f docker-compose.yml -f docker-compose.prod.yml
+    steps:
+      - uses: actions/checkout@v7
+      - name: Create .env with the bootstrap script
+        run: sh scripts/init-env.sh && ! grep -q '=CHANGE_ME$' .env
+      - name: Start the production stack
+        run: $COMPOSE up --build -d --wait --wait-timeout 300
+      - name: Only nginx is published; it serves the app and proxies the API
+        run: |
+          curl -fsS http://127.0.0.1:8080/ | grep -q '<div id="root">'
+          curl -fsS http://127.0.0.1:8080/health
+          code=$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/api/v1/tools)
+          test "$code" = 401 || { echo "catalogue without a session returned $code"; exit 1; }
+          for port in 8000 5173 5432 6379; do
+            if timeout 3 bash -c "</dev/tcp/127.0.0.1/$port" 2>/dev/null; then
+              echo "port $port is reachable from the host" && exit 1
+            fi
+          done
+      - name: Hardened containers (read-only root, non-root, production mode)
+        run: |
+          for svc in api worker frontend; do
+            id=$($COMPOSE ps -q $svc)
+            test "$(docker inspect -f '{{.HostConfig.ReadonlyRootfs}}' $id)" = true || { echo "$svc is writable"; exit 1; }
+          done
+          $COMPOSE exec -T api sh -c 'test "$(id -u)" != 0 && test "$ENVIRONMENT" = production'
+          $COMPOSE exec -T api python -c "import urllib.request, urllib.error
+          try:
+              urllib.request.urlopen('http://127.0.0.1:8000/docs', timeout=5)
+              raise SystemExit('/docs is served in production')
+          except urllib.error.HTTPError as e:
+              assert e.code == 404, e.code"
+      - name: Sentinel passes its own header checker
+        run: $COMPOSE exec -T api python - < scripts/self_header_check.py
+      - name: Log in through nginx and run a tool end to end
+        run: |
+          echo "secure-pass-$(python3 -c 'import secrets; print(secrets.token_hex(8))')" > /tmp/pw
+          $COMPOSE exec -T api python -m app.cli create-admin --username ci-admin --password-stdin < /tmp/pw
+          LOADTEST_ADMIN=ci-admin LOADTEST_PASSWORD="$(cat /tmp/pw)" LOADTEST_ORIGIN=http://localhost:8080 \
+          LOADTEST_USERS=3 LOADTEST_RUNS=5 \
+            $COMPOSE exec -T -e LOADTEST_ADMIN -e LOADTEST_PASSWORD -e LOADTEST_ORIGIN \
+              -e LOADTEST_USERS -e LOADTEST_RUNS api python - < scripts/load_test.py
+      - name: Logs on failure
+        if: failure()
+        run: $COMPOSE logs --no-color
+      - name: Tear down
+        if: always()
+        run: $COMPOSE down -v
