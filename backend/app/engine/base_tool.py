@@ -12,12 +12,14 @@ import re
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, ClassVar
 from uuid import UUID
 
 import structlog
 from pydantic import BaseModel
 
+from app.core.audit.actions import AuditAction
 from app.core.auth.roles import Role
 from app.core.tasks.queues import QUEUES
 from app.engine.schemas import Finding, ToolCategory, ToolError
@@ -78,6 +80,9 @@ class ToolContext:
     # cannot change between "checked" and "connected" (rebinding).
     authorized_addresses: tuple[str, ...] = ()
     scope_check: ScopeCheck | None = None
+    # For tools that accept uploads: the file stored for this run, if any.
+    # The framework owns it (stored by the API, deleted after the run).
+    upload_path: Path | None = None
 
     async def report_progress(self, pct: int, message: str) -> None:
         await self.progress_callback(max(0, min(100, pct)), message)
@@ -110,6 +115,13 @@ class BaseTool[ParamsT: BaseModel](ABC):
     queue: ClassVar[str] = "default"
     soft_time_limit: ClassVar[int] = 30  # seconds: graceful timeout, result is TIMED_OUT
     hard_time_limit: ClassVar[int] = 60  # seconds: Celery kills the task (Phase 5)
+    # Uploads (ADR 0014): a tool that sets this gets the generic upload route
+    # (POST /tools/{id}/runs/upload). Its params model must have an
+    # `upload_name: str` field, which the route fills with the file name.
+    accepts_upload: ClassVar[bool] = False
+    # An extra, domain-specific audit event recorded with tool.run.requested
+    # (e.g. log.analysis.requested, 03-logging-audit.md).
+    request_audit_action: ClassVar[AuditAction | None] = None
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
         """Validate tool metadata at import time, so a bad tool fails at startup."""
@@ -134,6 +146,8 @@ class BaseTool[ParamsT: BaseModel](ABC):
             raise TypeError(f"{cls.__name__}.queue must be one of {QUEUES}")
         if not 0 < cls.soft_time_limit < cls.hard_time_limit:
             raise TypeError(f"{cls.__name__}: require 0 < soft_time_limit < hard_time_limit")
+        if cls.accepts_upload and "upload_name" not in cls.params_model.model_fields:
+            raise TypeError(f"{cls.__name__}: upload tools need an 'upload_name' parameter")
 
     @abstractmethod
     async def run(self, params: ParamsT, ctx: ToolContext) -> RawOutput:
@@ -147,6 +161,11 @@ class BaseTool[ParamsT: BaseModel](ABC):
     def availability(cls) -> ToolAvailability:
         """Override when the tool needs configuration (API keys) before it can run."""
         return ToolAvailability()
+
+    @classmethod
+    def max_upload_bytes(cls) -> int:
+        """Upload size limit for tools with ``accepts_upload`` (from settings)."""
+        return 0
 
     def target_of(self, params: ParamsT) -> str | None:
         """The human-readable target recorded on the result (host, URL...)."""
