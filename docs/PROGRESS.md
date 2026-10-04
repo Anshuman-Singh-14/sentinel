@@ -10,13 +10,13 @@
 | 5 | Task infra & DNS | Complete (merged, PR #14) | 404 backend + 311 frontend tests; live DNS run verified; ADR 0006 |
 | 6 | Scope policy & port scanner | Complete (merged, PR #15) | 498 backend + 319 frontend tests; live lab scan verified; ADR 0007 |
 | 7 | Header & TLS checker | Complete (merged, PR #16) | 570 backend tests; fixture servers + live lab verified; ADR 0008 |
-| 8 | Threat intel | Not started (build 4th) | Stretch scope: two providers fully, third optional. Must accept the playbook's `indicators` reference (ADR 0009) |
+| 8 | Threat intel | Complete locally, awaiting PR/CI | 820 backend + 338 frontend tests; AbuseIPDB, VirusTotal, Shodan (mocked); playbook intel step live; ADR 0012 |
 | 9 | Network diagnostics | Not started (build 7th) | Stretch. Traceroute best-effort on Docker Desktop |
 | 10 | Log analyzer | Not started (build 5th) | Stretch |
 | 11 | File integrity monitor | Not started (build 6th) | Stretch. Demo on a named volume, not a Windows bind mount. Add `beat` to the prod profile |
 | 12 | Playbook engine | Complete (merged, PR #19) | Built 1st of the remaining phases; 618 backend + 327 frontend tests; ADR 0009 |
 | 13 | Reporting & export | Complete (merged, PR #20) | 691 backend + 335 frontend tests; live playbook PDF verified; ADR 0010 |
-| 14 | Observability & polish | Complete, CI green (PR #21, awaiting merge) | 768 backend + 335 frontend tests; prod profile; fresh clone → demo in ~2.5 min; ADR 0011. Observability stack deferred (optional) |
+| 14 | Observability & polish | Complete (merged, PR #21) | 768 backend + 335 frontend tests; prod profile; fresh clone → demo in ~2.5 min; ADR 0011. Observability stack deferred (optional) |
 
 ## Build order (approved 2026-10-02, ADR 0009)
 
@@ -57,11 +57,63 @@ containers. See `docs/adr/0001-architecture-and-stack.md`.
 - The repo lives in OneDrive. Moving it to a non-synced path is recommended.
 - Reports have no retention limit (the app role cannot delete them by design). Purging is an
   owner-role maintenance task for the deployment's data policy (ADR 0011).
+- Threat intel was verified against mocked provider APIs only (no keys were available). With real
+  keys, run one lookup per provider and check the findings and quotas.
 - Optional observability profile (OpenTelemetry, Prometheus, Loki) deferred; revisit after
   Phases 8–11 (ADR 0011).
 - Dev DB has leftover smoke-test admins (`p3smoke`, `p5smoke`, `e2ereports`). Disable them
   from another admin account before any shared demo (the load-test analysts and `analyst1`,
   used for the README screenshots, are already disabled).
+
+## Phase 8 log
+
+- **Order:** built after 12–14 (ADR 0009). ADR 0009 checklist items done: the playbook's
+  `indicators: "{{ steps.dns.resolved_ips }}"` reference works unchanged, and the Phase 13
+  exporters render intel findings (tested).
+- **Framework:** a generic `BaseTool.availability()` hook (ADR 0012):
+  - The catalogue reports `available`, `unavailable_reason` and a secret-free `status`.
+  - Runs of unconfigured tools get 409 with the reason.
+  - Optional playbook steps whose tool is unavailable are SKIPPED (`tool_unavailable`).
+  - The frontend shows the reason and provider status, and the sidebar tags the tool "setup".
+- **Tool `threat_intel`** (passive, `intel` queue):
+  - **Indicators:** IPs, domains and MD5/SHA-1/SHA-256 hashes; at most 20; the form takes
+    text, playbooks pass lists.
+  - **Privacy:** non-global addresses are never sent to a provider (INFO finding instead),
+    and internal domain suffixes are rejected.
+  - **Providers:**
+    - AbuseIPDB: IP; abuse confidence score.
+    - VirusTotal v3: IP, domain, hash; share of vendors saying malicious.
+    - Shodan: IP; exposure data (open ports, CVEs), not reputation.
+
+    Each is enabled only by its API key, and they share a common `Reputation` model.
+  - **Robustness:**
+    - Per-provider budgets in a shared Redis window, with 429/503 retried using Retry-After
+      or jittered backoff.
+    - A 1 MB response cap, no redirects, and key-safe errors.
+    - 4 concurrent lookups, a 10 s timeout each, and a 6-hour cache.
+    - Partial results when one provider fails; FAILED when every lookup fails.
+  - **Findings:** documented severity bands (AbuseIPDB score, VirusTotal vendor counts, Shodan
+    CVEs), confidence from the weight of evidence, the source named and linked on every
+    finding, and remediation for both "it's mine" and "it's theirs".
+- **Refactor:** the Redis cache and window limiter moved from the port scanner to
+  `app/core/external.py` (shared).
+- **Config:** `ABUSEIPDB_API_KEY`, `VIRUSTOTAL_API_KEY`, `SHODAN_API_KEY` in Compose and
+  `.env.example` (with sign-up links), plus budgets, timeout and cache TTL.
+- **Docs:** ADR 0012, threat model T70–T74, and the README (features, optional demo step,
+  status).
+- **Local acceptance (2026-10-04):**
+  - Backend: 820 tests pass (46 new intel unit tests and 6 new integration tests), with ruff,
+    mypy and bandit clean. Frontend: 338 tests pass, with eslint, prettier and tsc clean.
+  - Providers mocked in tests with `httpx.MockTransport` (no new dependency; respx not needed).
+  - Missing keys disable providers gracefully: catalogue status, 409 on direct runs, the
+    playbook step SKIPPED with the reason.
+  - 429 handling tested: Retry-After honoured, then success; persistent 429 becomes
+    `rate_limited`; a full local budget fails fast without calling the provider.
+  - Key safety: keys absent from stored runs, errors, the catalogue and the provider's repr,
+    even when the network error text contains the URL.
+  - Live (dev stack, no keys): the catalogue reports "not configured", a direct run returns
+    409, and the Web Defensive Audit against `lab-https` completes with intel SKIPPED
+    (`tool_unavailable`).
 
 ## Phase 14 log
 
