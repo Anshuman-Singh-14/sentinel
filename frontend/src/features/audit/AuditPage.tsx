@@ -8,7 +8,7 @@
  */
 
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ShieldAlert, ShieldCheck } from "lucide-react";
+import { FileDown, ShieldAlert, ShieldCheck } from "lucide-react";
 import { useState } from "react";
 import type { FormEvent } from "react";
 import { useSearchParams } from "react-router";
@@ -27,6 +27,7 @@ import {
   useToast,
 } from "../../components/ui";
 import type { BadgeTone, Column } from "../../components/ui";
+import { saveBlob } from "../../lib/api/client";
 import { adminApi } from "../../lib/api/endpoints";
 import type { AuditFilters } from "../../lib/api/endpoints";
 import { errorMessage } from "../../lib/api/errors";
@@ -212,6 +213,52 @@ const EVENT_COLUMNS: Column<AuditEvent>[] = [
   },
 ];
 
+/** Only a strict ASCII filename from the server is used; anything else gets a safe default. */
+export function exportFilename(header: string | null, format: string): string {
+  const match = /filename="([A-Za-z0-9._-]{1,160})"/.exec(header ?? "");
+  return match?.[1] ?? `sentinel-audit.${format}`;
+}
+
+function ExportBar({ filters }: { filters: AuditFilters }) {
+  const toast = useToast();
+  const exportAudit = useMutation({
+    mutationFn: (format: "csv" | "json") => adminApi.exportAudit(filters, format),
+    onSuccess: ({ blob, headers }, format) => {
+      saveBlob(blob, exportFilename(headers.get("Content-Disposition"), format));
+      const rows = headers.get("X-Export-Rows") ?? "?";
+      const truncated = headers.get("X-Export-Truncated") === "true";
+      toast.show({
+        tone: truncated ? "info" : "success",
+        title: `Exported ${rows} events`,
+        description: truncated
+          ? "The export hit the row limit (newest first). Narrow the filters to get the rest."
+          : undefined,
+      });
+    },
+    onError: (error) =>
+      toast.show({ tone: "error", title: "Export failed", description: errorMessage(error) }),
+  });
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-sm">
+      <span className="text-muted">Export the applied filters as</span>
+      {(["csv", "json"] as const).map((format) => (
+        <Button
+          key={format}
+          size="sm"
+          variant="secondary"
+          loading={exportAudit.isPending && exportAudit.variables === format}
+          disabled={exportAudit.isPending}
+          onClick={() => exportAudit.mutate(format)}
+        >
+          <FileDown size={14} aria-hidden="true" />
+          {format.toUpperCase()}
+        </Button>
+      ))}
+      <span className="text-xs text-muted">The export itself is recorded in the audit log.</span>
+    </div>
+  );
+}
+
 function EventsSection() {
   const [form, setForm] = useState<FilterForm>(EMPTY_FORM);
   const [filters, setFilters] = useState<AuditFilters>({});
@@ -314,6 +361,8 @@ function EventsSection() {
           </div>
         </div>
       </form>
+
+      <ExportBar filters={filters} />
 
       {events.isError && (
         <p role="alert" className="text-sm text-fail">

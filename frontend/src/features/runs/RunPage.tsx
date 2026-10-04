@@ -10,6 +10,7 @@ import { formatDateTime } from "../../lib/format";
 import type { RunDetail } from "../../types/api";
 import { isTerminal, roleAllows } from "../../types/api";
 import { useUser } from "../auth/guards";
+import { ExportPanel } from "../reports/ExportPanel";
 import { FindingCard, RunStatusBadge, RunTimeline, SeveritySummary } from "./components";
 import { runQueryKey, useRunStatus } from "./useRunStatus";
 import type { Connection } from "./useRunStatus";
@@ -195,6 +196,8 @@ export function RunPage() {
           />
         </Card>
       )}
+
+      {!active && <ExportPanel sourceType="tool_run" sourceId={run.run_id} />}
     </div>
   );
 }

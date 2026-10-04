@@ -12,13 +12,17 @@ import type {
   PlaybookInfo,
   PlaybookRunDetail,
   PlaybookRunPage,
+  Report,
+  ReportFormat,
+  ReportPage,
+  ReportSourceType,
   SecurityAlert,
   SessionInfo,
   ToolDescriptor,
   User,
   VerifyResponse,
 } from "../../types/api";
-import { api } from "./client";
+import { api, download } from "./client";
 
 const V1 = "/api/v1";
 
@@ -70,6 +74,10 @@ export const adminApi = {
     api.get<SecurityAlert[]>(`${V1}/admin/alerts`, {
       query: { unacknowledged_only: unacknowledgedOnly || undefined, limit: 50 },
       signal,
+    }),
+  exportAudit: (filters: AuditFilters, format: "csv" | "json") =>
+    download(`${V1}/admin/audit/export`, {
+      query: { ...filters, security_only: filters.security_only || undefined, format },
     }),
   acknowledgeAlert: (alertId: string) =>
     api.post<SecurityAlert>(`${V1}/admin/alerts/${encodeURIComponent(alertId)}/acknowledge`),
@@ -131,4 +139,24 @@ export const playbooksApi = {
     api.post<{ ticket: string; expires_in: number }>(
       `${V1}/playbook-runs/${encodeURIComponent(id)}/ws-ticket`,
     ),
+};
+
+export interface ReportFilters {
+  mine?: boolean;
+  source_type?: ReportSourceType;
+  source_id?: string;
+}
+
+export const reportsApi = {
+  formats: (signal?: AbortSignal) => api.get<ReportFormat[]>(`${V1}/reports/formats`, { signal }),
+  create: (sourceType: ReportSourceType, sourceId: string, format: string) =>
+    api.post<Report>(`${V1}/reports`, { source_type: sourceType, source_id: sourceId, format }),
+  get: (id: string, signal?: AbortSignal) =>
+    api.get<Report>(`${V1}/reports/${encodeURIComponent(id)}`, { signal }),
+  list: (filters: ReportFilters, before?: string, signal?: AbortSignal) =>
+    api.get<ReportPage>(`${V1}/reports`, {
+      query: { ...filters, mine: filters.mine || undefined, before, limit: 25 },
+      signal,
+    }),
+  download: (id: string) => download(`${V1}/reports/${encodeURIComponent(id)}/download`),
 };

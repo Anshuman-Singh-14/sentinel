@@ -148,6 +148,9 @@ export function DataTable<T>({
                   onKeyDown={
                     interactive
                       ? (event) => {
+                          // Keys pressed on a control inside the row (a download
+                          // button) belong to that control, not the row.
+                          if (event.target !== event.currentTarget) return;
                           if (event.key === "Enter" || event.key === " ") {
                             event.preventDefault();
                             onRowClick?.(row);

@@ -150,11 +150,12 @@ export function refreshSession(): Promise<boolean> {
 
 // --- public API ---------------------------------------------------------------------
 
-export async function request<T>(
+/** Send with the refresh-and-retry dance; throws ApiError for any non-2xx response. */
+async function sendWithRefresh(
   method: HttpMethod,
   path: string,
-  options: RequestOptions = {},
-): Promise<T> {
+  options: RequestOptions,
+): Promise<Response> {
   const url = buildUrl(path, options.query);
   let response = await send(method, url, options);
 
@@ -173,7 +174,47 @@ export async function request<T>(
   }
 
   if (!response.ok) throw await errorFromResponse(response);
-  return parse<T>(response);
+  return response;
+}
+
+export async function request<T>(
+  method: HttpMethod,
+  path: string,
+  options: RequestOptions = {},
+): Promise<T> {
+  return parse<T>(await sendWithRefresh(method, path, options));
+}
+
+export interface DownloadedFile {
+  blob: Blob;
+  headers: Headers;
+}
+
+/**
+ * Fetch a file (report, audit export) through the same client: same-origin,
+ * session refresh, timeout. A plain `<a href>` would bypass the refresh, so an
+ * expired access token would save a JSON error as the "report".
+ */
+export async function download(
+  path: string,
+  options: Omit<RequestOptions, "body"> = {},
+): Promise<DownloadedFile> {
+  const response = await sendWithRefresh("GET", path, { timeoutMs: 60_000, ...options });
+  return { blob: await response.blob(), headers: response.headers };
+}
+
+/** Hand a blob to the browser as a download, then release it. */
+export function saveBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.rel = "noopener";
+  document.body.append(link);
+  link.click();
+  link.remove();
+  // Revoke on the next tick: some browsers start the download asynchronously.
+  setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
 export const api = {
