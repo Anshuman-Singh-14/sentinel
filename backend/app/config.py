@@ -175,6 +175,14 @@ class Settings(LoggingSettings):
     nvd_timeout_seconds: float = Field(default=15.0, gt=0, le=60)
     nvd_cache_hours: int = Field(default=24, ge=1, le=720)
 
+    # Reports (Phase 13). Rendering runs in a worker; these bound its cost.
+    report_rate_limit_per_minute: int = Field(default=10, ge=1, le=1000)
+    max_active_reports_per_user: int = Field(default=3, ge=1, le=100)
+    report_max_bytes: int = Field(default=20_000_000, ge=100_000, le=100_000_000)
+    report_render_timeout_seconds: int = Field(default=60, ge=5, le=600)
+    # Admin audit-trail export: rows per file (newest first).
+    audit_export_max_rows: int = Field(default=10_000, ge=100, le=100_000)
+
     _split_cors = field_validator("cors_origins", mode="before")(_split_csv)
     _split_proxies = field_validator("trusted_proxies", mode="before")(_split_csv)
     _split_nameservers = field_validator("dns_nameservers", mode="before")(_split_csv)

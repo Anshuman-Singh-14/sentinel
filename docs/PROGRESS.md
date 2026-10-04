@@ -14,8 +14,8 @@
 | 9 | Network diagnostics | Not started (build 7th) | Stretch. Traceroute best-effort on Docker Desktop |
 | 10 | Log analyzer | Not started (build 5th) | Stretch |
 | 11 | File integrity monitor | Not started (build 6th) | Stretch. Demo on a named volume, not a Windows bind mount. Add `beat` to the prod profile |
-| 12 | Playbook engine | Complete locally, awaiting CI | Built 1st of the remaining phases; 618 backend + 327 frontend tests; ADR 0009 |
-| 13 | Reporting & export | Not started (build 2nd) | |
+| 12 | Playbook engine | Complete (merged, PR #19) | Built 1st of the remaining phases; 618 backend + 327 frontend tests; ADR 0009 |
+| 13 | Reporting & export | Complete, CI green (PR #20, awaiting merge) | 691 backend + 335 frontend tests; live playbook PDF verified; ADR 0010 |
 | 14 | Observability & polish | Not started (build 3rd) | Observability profile optional |
 
 ## Build order (approved 2026-10-02, ADR 0009)
@@ -37,8 +37,6 @@ containers. See `docs/adr/0001-architecture-and-stack.md`.
 
 - Starlette warns that TestClient on `httpx` is deprecated in favour of `httpx2`. Runtime
   stays on httpx 0.28.1 (ADR 0008); revisit the TestClient dependency when Starlette drops it.
-- Audit export to CSV/JSON (03-logging-audit.md section 6) needs a server endpoint that
-  records `audit.exported`. Deferred to Phase 13 with the other exporters.
 - After a frontend dependency change, refresh the `frontend_node_modules` volume:
   `docker compose exec frontend npm ci` (rebuilding the image alone does not).
 - Password analyzer: the optional HIBP k-anonymity check (spec "optional future") is not
@@ -57,6 +55,66 @@ containers. See `docs/adr/0001-architecture-and-stack.md`.
   test credentials, now allowlisted as exact literals in `.gitleaks.toml`.
 - LICENSE copyright holder (`Anshuman-Singh-14`) needs confirming by the repo owner.
 - The repo lives in OneDrive. Moving it to a non-synced path is recommended.
+- Reports have no retention policy yet (the app role cannot delete them by design). Decide
+  on retention, and how it is applied, in Phase 14.
+- Dev DB has leftover smoke-test admins (`p3smoke`, `p5smoke`, `e2ereports`). Disable them
+  from another admin account before any shared demo.
+
+## Phase 13 log
+
+- **Design:** ADR 0010. One `ReportDocument` per report (a tool run or a playbook run,
+  built from the same `load_detail` the run page uses), rendered by exporter plugins.
+- **Exporters** (`app/reports/exporters/`, one `@register` class each, published by
+  `GET /reports/formats`; the frontend builds its buttons from it):
+  - **PDF (ReportLab):**
+    - Cover page, then an executive summary with a severity chart and priorities.
+    - Scope and method: tools and versions, parameters, playbook steps.
+    - Findings table, then detailed findings (explanation, rationale, remediation,
+      evidence, references).
+    - Errors, a truncated raw-data appendix, and "Page X of Y" on every page.
+    - Every dynamic string is escaped; raw data uses `Preformatted`; references are not linked.
+  - **CSV:** one row per finding, formula-injection safe (`app/reports/csv_safe.py`).
+  - **JSON:** the full document. **TXT:** a plain-text report.
+- **Generation:** `sentinel.generate_report` on the default queue: compare-and-set claim,
+  render in a thread under a 60 s timeout, a 20 MB cap, SHA-256 and size recorded,
+  redelivery fails the report (`worker_lost`).
+- **Migration 0006:** `reports` and `report_blobs`, SELECT/INSERT (+UPDATE on `reports`
+  only), no DELETE.
+- **API:**
+  - `POST /reports` (analyst; source must be finished; 10/min and 3 in flight per user).
+  - `GET /reports`, `GET /reports/{id}` and `GET /reports/{id}/download` (any role). Downloads
+    are verified against the SHA-256 and audited, and fail closed.
+  - `GET /admin/audit/export` (CSV/JSON, the viewer's filters, newest first, capped at
+    10,000 rows with a truncation flag). Closes the item deferred from Phase 3.
+- **Audit:** `report.exported` (request), `report.generated` (worker; success or failure),
+  `report.downloaded`, and `audit.exported`.
+- **Frontend:**
+  - Export panel on finished run and playbook run pages: buttons per format for analysts;
+    a report list for everyone that polls while reports generate, with download buttons.
+  - `/reports` history page, linked from the sidebar.
+  - CSV/JSON export on the audit page.
+  - Downloads go through the API client (session refresh, timeout) and are saved from a blob.
+  - Fixes: DataTable rows no longer swallow Enter on buttons inside them. Testing Library's
+    async timeout is raised to 5 s, which stops random `findBy` timeouts under a full
+    parallel run.
+- **Docs:** ADR 0010, threat model T58–T63 (plus an accepted risk on PDF fonts), and the
+  Phase 13 design note folded into the ADR.
+- **Local acceptance (2026-10-04):**
+  - Backend: 691 tests pass (unit + integration), with ruff, mypy and bandit clean, the
+    migration round trip clean and `alembic check` reporting no drift.
+  - Frontend: 335 tests pass on two consecutive full runs, with eslint, prettier and tsc
+    clean and the production build OK.
+  - CSV injection: payloads (`=HYPERLINK`, `+cmd`, `-2+3`, `@SUM`, tab/CR/LF prefixes,
+    leading blanks, full-width `＝`) are neutralised in every field. End to end, a hostile
+    banner from a real tool run and a hostile User-Agent in the real audit trail are both
+    prefixed in the exported CSVs.
+  - PDF: hostile `<a href="javascript:">`, `<img>` and `<font>` print as text, and the
+    output has no `/Annot`, `/URI`, `/JavaScript` or `/Launch`.
+  - Live, through the real worker: the Web Defensive Audit against `lab-https` (default
+    `web_url`) →
+    PDF (7 pages), CSV, JSON and TXT all COMPLETED; each download matched its SHA-256; the
+    audit log shows 4 × `report.exported`, `report.generated` and `report.downloaded`, plus
+    `audit.exported` for the admin CSV export.
 
 ## Phase 12 log
 

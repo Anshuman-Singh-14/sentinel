@@ -1,0 +1,136 @@
+"""Plain-text exporter: the PDF's content, readable in any terminal or email."""
+
+import textwrap
+
+from app.reports.document import ReportDocument
+from app.reports.exporters._format import (
+    RAW_TOTAL_MAX_CHARS,
+    SEVERITY_ORDER,
+    evidence_lines,
+    fmt_dt,
+    fmt_duration,
+    raw_json,
+    scalar,
+)
+from app.reports.exporters.base import Exporter, clean_text, register
+
+WIDTH = 100
+
+
+def _heading(title: str, char: str = "=") -> list[str]:
+    return ["", title, char * len(title)]
+
+
+def _wrap(text: str, indent: str = "") -> list[str]:
+    lines: list[str] = []
+    for paragraph in clean_text(text).split("\n"):
+        lines.extend(
+            textwrap.wrap(paragraph, WIDTH, initial_indent=indent, subsequent_indent=indent)
+            or [indent.rstrip()]
+        )
+    return lines
+
+
+def _field(label: str, value: str) -> list[str]:
+    return _wrap(f"{label}: {value}", "")
+
+
+@register
+class TextExporter(Exporter):
+    format = "txt"
+    label = "Plain text"
+    media_type = "text/plain; charset=utf-8"
+    extension = "txt"
+
+    def render(self, doc: ReportDocument) -> bytes:
+        s = doc.subject
+        out: list[str] = [
+            "SENTINEL SECURITY REPORT",
+            "=" * 24,
+            *_field("Title", doc.title),
+            *_field("Target", s.target or "-"),
+            *_field(
+                "Source",
+                f"{'Playbook' if s.kind == 'playbook_run' else 'Tool run'} "
+                f"{s.name} v{s.version} ({s.id})",
+            ),
+            *_field("Status", s.status),
+            *_field("Run by", s.initiated_by),
+            *_field("Started", fmt_dt(s.started_at)),
+            *_field("Completed", fmt_dt(s.completed_at)),
+            *_field("Duration", fmt_duration(s.duration_ms)),
+            *_field("Report generated", f"{fmt_dt(doc.generated_at)} by {doc.generated_by}"),
+            *_field("Report ID", str(doc.report_id)),
+        ]
+
+        out += _heading("Executive summary")
+        out += _wrap(doc.risk.headline)
+        counts = {str(k): v for k, v in doc.risk.by_severity.items()}
+        out.append("  ".join(f"{sev}: {counts.get(sev, 0)}" for sev in SEVERITY_ORDER))
+
+        out += _heading("Scope and method")
+        out.append("Tools:")
+        out += [f"  - {t.name} ({t.tool_id}) v{t.version}" for t in doc.tools] or ["  -"]
+        out.append("Parameters:")
+        out += [
+            line
+            for key, value in doc.subject.parameters.items()
+            for line in _wrap(f"{key} = {scalar(value)}", "  ")
+        ] or ["  -"]
+        if doc.steps:
+            out.append("Steps:")
+            for step in doc.steps:
+                out += _wrap(
+                    f"{step.position + 1}. {step.name} [{step.tool_id}]: {step.status}"
+                    + (f" ({step.error})" if step.error else ""),
+                    "  ",
+                )
+
+        if doc.errors:
+            out += _heading("Errors and partial coverage")
+            for error in doc.errors:
+                out += _wrap(f"- {error}")
+
+        out += _heading(f"Findings ({len(doc.findings)})")
+        if not doc.findings:
+            out.append("No findings.")
+        for number, f in enumerate(doc.findings, start=1):
+            out += _heading(f"F-{number:02d} [{f.severity.value}] {clean_text(f.item)}", "-")
+            out += _field(
+                "Status / category / confidence",
+                f"{f.status.value} / {f.category} / {f.confidence.value}",
+            )
+            source = f.step_id + (
+                f" (also: {', '.join(f.also_reported_by)})" if f.also_reported_by else ""
+            )
+            out += _field("Source", source)
+            out.append("What this means:")
+            out += _wrap(f.explanation, "  ")
+            out.append("Why this severity:")
+            out += _wrap(f.severity_rationale, "  ")
+            out.append("How to fix:")
+            out += _wrap(f.remediation, "  ")
+            if f.evidence:
+                out.append("Evidence:")
+                for key, value in evidence_lines(f.evidence):
+                    out += _wrap(f"{key}: {value}", "  ")
+            if f.references:
+                out.append("References:")
+                out += [line for ref in f.references for line in _wrap(ref, "  ")]
+
+        if doc.raw:
+            out += _heading("Appendix: raw data (truncated)")
+            budget = RAW_TOTAL_MAX_CHARS
+            for section in doc.raw:
+                out += _heading(f"{clean_text(section.label)} - run {section.run_id}", "-")
+                if budget <= 0:
+                    out.append("[omitted: appendix size limit reached; see the JSON export]")
+                    continue
+                text, cut = raw_json(section.data, min(budget, 30_000))
+                budget -= len(text)
+                out.append(text)
+                if cut:
+                    out.append("[truncated; the JSON export has the full raw data]")
+
+        out += ["", "Generated by Sentinel. For authorised, defensive use only."]
+        return ("\n".join(out) + "\n").encode("utf-8")

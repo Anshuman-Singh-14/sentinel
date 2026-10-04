@@ -333,3 +333,44 @@ export interface PlaybookEvent {
   steps: Array<{ step_id: string; status: StepStatus }>;
   ts: string;
 }
+
+// --- reports (Phase 13) -------------------------------------------------------------
+
+export type ReportSourceType = "tool_run" | "playbook_run";
+export type ReportStatus = "QUEUED" | "RUNNING" | "COMPLETED" | "FAILED";
+
+export interface ReportFormat {
+  format: string;
+  label: string;
+  media_type: string;
+  extension: string;
+}
+
+export interface Report {
+  report_id: string;
+  source_type: ReportSourceType;
+  source_id: string;
+  title: string;
+  target: string | null;
+  format: string;
+  status: ReportStatus;
+  requested_by: string;
+  user_id: string;
+  created_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+  filename: string | null;
+  media_type: string | null;
+  size_bytes: number | null;
+  sha256: string | null;
+  error: { code: string; message: string } | null;
+}
+
+export interface ReportPage {
+  reports: Report[];
+  next_before: string | null;
+}
+
+export function isReportActive(status: ReportStatus): boolean {
+  return status === "QUEUED" || status === "RUNNING";
+}

@@ -20,6 +20,7 @@ import { formatDateTime } from "../../lib/format";
 import type { PlaybookRunDetail, PlaybookStepOut, StepStatus } from "../../types/api";
 import { isTerminal, roleAllows } from "../../types/api";
 import { useUser } from "../auth/guards";
+import { ExportPanel } from "../reports/ExportPanel";
 import { FindingCard, RunStatusBadge, SeveritySummary } from "../runs/components";
 import type { Connection } from "../runs/useRunStatus";
 import { playbookRunKey, usePlaybookStatus } from "./usePlaybookStatus";
@@ -244,6 +245,8 @@ export function PlaybookRunPage() {
           </div>
         </Card>
       )}
+
+      {!active && <ExportPanel sourceType="playbook_run" sourceId={run.playbook_run_id} />}
     </div>
   );
 }
