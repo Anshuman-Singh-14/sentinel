@@ -21,6 +21,7 @@ dependencies = [
     "dnspython==2.8.0",           # async DNS resolver for dns_lookup (no shell `dig`, CLAUDE.md rule 1)
     "httpx==0.28.1",              # async HTTP client (NVD API; later header/TLS checker and threat intel)
     "cryptography==50.0.2",       # X.509 parsing of certificates that fail verification (header_tls)
+    "reportlab==5.0.1",           # PDF reports (Phase 13); pure-Python layout, no HTML rendering
 ]
 
 [dependency-groups]
@@ -64,6 +65,15 @@ plugins = ["pydantic.mypy"]
 # These libraries ship no type information.
 module = ["asyncpg", "asyncpg.*", "celery", "celery.*", "kombu", "kombu.*"]
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# ReportLab ships no type information; the PDF exporter subclasses its Canvas.
+module = ["reportlab", "reportlab.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["app.reports.exporters.pdf"]
+disallow_subclassing_any = false
 
 [[tool.mypy.overrides]]
 # Celery's @task decorator is untyped; allow that only where tasks are declared.
