@@ -7,6 +7,26 @@ All notable changes to Sentinel. The format follows
 ## [Unreleased]
 
 ### Added
+- **Log File Analyzer (Phase 10, ADR 0014):**
+  - Analyses SSH `auth.log` (OpenSSH, classic or RFC 3339 syslog) and
+    nginx/Apache combined access logs, with format auto-detection and gzip
+    support.
+  - Eight YAML detection rules: password-guessing bursts, user-name
+    enumeration, success after failures, root logins, path traversal (`../`,
+    encoded, double-encoded, overlong UTF-8), scanner user agents, high request
+    rates and 4xx/5xx spikes.
+  - Severity escalates when an attack may have worked: a root login that
+    succeeded, traversal answered with 2xx, a spike dominated by 5xx.
+  - Streaming and bounded: line, size, source-address and decompression caps;
+    memory does not grow with file size (tested).
+  - Generic upload route `POST /tools/{id}/runs/upload`: the raw file body is
+    streamed to a shared volume under the run id, size- and time-capped, and
+    deleted after the run. No new dependency.
+  - `PathGuard` for files in the read-only `LOG_ROOT`: rejects traversal,
+    absolute paths, null bytes and symlink escapes, and opens files with
+    `O_NOFOLLOW`.
+  - `log.analysis.requested` audit event (file name and size, never the
+    contents). Sample logs live in `backend/tests/fixtures/logs`.
 - **One-file launcher.** `python run.py` takes a fresh clone to the login page
   (standard library only, Python 3.10+, Windows, macOS and Linux):
   - Checks that Docker is installed and running, and that Compose is v2.24+.
@@ -26,8 +46,8 @@ All notable changes to Sentinel. The format follows
   out of view. Absolutely positioned screen-reader labels were escaping the app shell; the shell
   and the content area now contain them, so only the content scrolls.
 
-Planned stretch phases, in the approved order (ADR 0009): 10 (log analyzer),
-11 (file integrity monitor), 9 (network diagnostics).
+Remaining stretch phases, in the approved order (ADR 0009): 11 (file
+integrity monitor), 9 (network diagnostics).
 
 ## [1.0.0] - 2026-10-04
 
