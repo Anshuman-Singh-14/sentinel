@@ -245,7 +245,7 @@ services:
   # from the worker over the internal `lab` network; no host ports.
   lab-web:
     profiles: [lab]
-    image: nginxinc/nginx-unprivileged:1.29-alpine
+    image: nginxinc/nginx-unprivileged:1.31-alpine
     networks:
       lab:
         ipv4_address: ${SENTINEL_LAB_WEB_IP:-10.231.10.10}
