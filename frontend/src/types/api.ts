@@ -43,6 +43,19 @@ export interface ToolDescriptor {
   is_active: boolean;
   required_role: Role;
   params_schema: Record<string, unknown>;
+  /** False when installed but not configured (e.g. no threat-intel API key). */
+  available?: boolean;
+  unavailable_reason?: string | null;
+  /** Tool-specific, secret-free status, e.g. `{ providers: [...] }` for threat intel. */
+  status?: Record<string, unknown>;
+}
+
+export interface ProviderStatus {
+  id: string;
+  name: string;
+  configured: boolean;
+  env_var: string;
+  supports: string[];
 }
 
 export interface HealthResponse {
@@ -244,6 +257,7 @@ export interface PlaybookStepInfo {
   tool_id: string;
   tool_name: string | null;
   available: boolean;
+  unavailable_reason?: string | null;
   optional: boolean;
   on_failure: "stop" | "continue";
   is_active: boolean;

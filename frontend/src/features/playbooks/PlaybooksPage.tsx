@@ -30,7 +30,13 @@ function StepList({ playbook }: { playbook: PlaybookInfo }) {
             {!step.available && (
               <Badge tone="neutral">
                 <CircleSlash size={10} aria-hidden="true" />
-                {step.optional ? "not installed yet: skipped" : "not installed"}
+                {step.tool_name
+                  ? step.optional
+                    ? "not configured: skipped"
+                    : "not configured"
+                  : step.optional
+                    ? "not installed yet: skipped"
+                    : "not installed"}
               </Badge>
             )}
             {step.on_failure === "continue" && (
@@ -38,6 +44,9 @@ function StepList({ playbook }: { playbook: PlaybookInfo }) {
             )}
           </div>
           {step.description && <p className="ml-7 text-xs text-muted">{step.description}</p>}
+          {!step.available && step.tool_name && step.unavailable_reason && (
+            <p className="ml-7 text-xs text-warn">{step.unavailable_reason}</p>
+          )}
           {index < playbook.steps.length - 1 && (
             <ArrowDown size={12} aria-hidden="true" className="ml-5 text-border-strong" />
           )}
