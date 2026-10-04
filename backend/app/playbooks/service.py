@@ -69,6 +69,83 @@ def summary_of(run: PlaybookRun) -> PlaybookRunSummary:
     )
 
 
+async def get_playbook_run(db: AsyncSession, playbook_run_id: uuid.UUID) -> PlaybookRun:
+    run = await db.scalar(
+        select(PlaybookRun)
+        .where(PlaybookRun.id == playbook_run_id)
+        .options(selectinload(PlaybookRun.steps))
+    )
+    if run is None:
+        raise NotFound("Playbook run not found.")
+    return run
+
+
+async def load_detail(db: AsyncSession, playbook_run_id: uuid.UUID) -> PlaybookRunDetail:
+    """The full playbook run: steps, linked tool runs, unified findings and risk.
+
+    Module-level so the report worker builds exactly what the API shows.
+    """
+    run = await get_playbook_run(db, playbook_run_id)
+    run_ids = [s.tool_run_id for s in run.steps if s.tool_run_id]
+    tool_runs: dict[uuid.UUID, ToolRun] = {}
+    findings: dict[uuid.UUID, list[FindingRow]] = {rid: [] for rid in run_ids}
+    if run_ids:
+        for loaded in await db.scalars(select(ToolRun).where(ToolRun.id.in_(run_ids))):
+            tool_runs[loaded.id] = loaded
+        rows = await db.scalars(
+            select(FindingRow).where(FindingRow.run_id.in_(run_ids)).order_by(FindingRow.position)
+        )
+        for row in rows:
+            findings[row.run_id].append(row)
+
+    steps_out: list[StepOut] = []
+    collected: list[StepFindings] = []
+    for step in run.steps:
+        tool_run = tool_runs.get(step.tool_run_id) if step.tool_run_id else None
+        steps_out.append(
+            StepOut(
+                position=step.position,
+                step_id=step.step_id,
+                name=step.name,
+                tool_id=step.tool_id,
+                on_failure=step.on_failure,
+                status=step.status,
+                run=RunSummary.from_row(tool_run) if tool_run else None,
+                resolved_params=step.resolved_params,
+                error=step.error,
+                started_at=step.started_at,
+                completed_at=step.completed_at,
+            )
+        )
+        if tool_run is not None:
+            collected.append(
+                StepFindings(
+                    step.step_id,
+                    step.tool_id,
+                    tool_run.id,
+                    [finding_from_row(r) for r in findings[tool_run.id]],
+                )
+            )
+    merged = merge(collected)
+    completed = sum(1 for s in run.steps if s.status == "COMPLETED")
+    failed = sum(1 for s in run.steps if s.status in ("FAILED", "TIMED_OUT"))
+    base: dict[str, Any] = summary_of(run).model_dump()
+    return PlaybookRunDetail(
+        **base,
+        playbook_version=run.playbook_version,
+        inputs=run.inputs,
+        user_id=run.user_id,
+        started_at=run.started_at,
+        progress_pct=run.progress_pct,
+        current_step=run.current_step,
+        cancel_requested=run.cancel_requested_at is not None,
+        error=run.error,
+        steps=steps_out,
+        risk=risk_summary(merged, completed_steps=completed, failed_steps=failed),
+        findings=merged,
+    )
+
+
 class PlaybookService:
     def __init__(
         self,
@@ -223,77 +300,10 @@ class PlaybookService:
     # --- read --------------------------------------------------------------------------------
 
     async def get_run(self, playbook_run_id: uuid.UUID) -> PlaybookRun:
-        run = await self.db.scalar(
-            select(PlaybookRun)
-            .where(PlaybookRun.id == playbook_run_id)
-            .options(selectinload(PlaybookRun.steps))
-        )
-        if run is None:
-            raise NotFound("Playbook run not found.")
-        return run
+        return await get_playbook_run(self.db, playbook_run_id)
 
     async def detail(self, playbook_run_id: uuid.UUID) -> PlaybookRunDetail:
-        run = await self.get_run(playbook_run_id)
-        run_ids = [s.tool_run_id for s in run.steps if s.tool_run_id]
-        tool_runs: dict[uuid.UUID, ToolRun] = {}
-        findings: dict[uuid.UUID, list[FindingRow]] = {rid: [] for rid in run_ids}
-        if run_ids:
-            for loaded in await self.db.scalars(select(ToolRun).where(ToolRun.id.in_(run_ids))):
-                tool_runs[loaded.id] = loaded
-            rows = await self.db.scalars(
-                select(FindingRow)
-                .where(FindingRow.run_id.in_(run_ids))
-                .order_by(FindingRow.position)
-            )
-            for row in rows:
-                findings[row.run_id].append(row)
-
-        steps_out: list[StepOut] = []
-        collected: list[StepFindings] = []
-        for step in run.steps:
-            tool_run = tool_runs.get(step.tool_run_id) if step.tool_run_id else None
-            steps_out.append(
-                StepOut(
-                    position=step.position,
-                    step_id=step.step_id,
-                    name=step.name,
-                    tool_id=step.tool_id,
-                    on_failure=step.on_failure,
-                    status=step.status,
-                    run=RunSummary.from_row(tool_run) if tool_run else None,
-                    resolved_params=step.resolved_params,
-                    error=step.error,
-                    started_at=step.started_at,
-                    completed_at=step.completed_at,
-                )
-            )
-            if tool_run is not None:
-                collected.append(
-                    StepFindings(
-                        step.step_id,
-                        step.tool_id,
-                        tool_run.id,
-                        [finding_from_row(r) for r in findings[tool_run.id]],
-                    )
-                )
-        merged = merge(collected)
-        completed = sum(1 for s in run.steps if s.status == "COMPLETED")
-        failed = sum(1 for s in run.steps if s.status in ("FAILED", "TIMED_OUT"))
-        base: dict[str, Any] = summary_of(run).model_dump()
-        return PlaybookRunDetail(
-            **base,
-            playbook_version=run.playbook_version,
-            inputs=run.inputs,
-            user_id=run.user_id,
-            started_at=run.started_at,
-            progress_pct=run.progress_pct,
-            current_step=run.current_step,
-            cancel_requested=run.cancel_requested_at is not None,
-            error=run.error,
-            steps=steps_out,
-            risk=risk_summary(merged, completed_steps=completed, failed_steps=failed),
-            findings=merged,
-        )
+        return await load_detail(self.db, playbook_run_id)
 
     async def list_runs(
         self,

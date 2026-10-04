@@ -153,6 +153,14 @@ class AuditUnavailable(ServiceUnavailable):
     default_message = "The action could not be recorded, so it was not performed."
 
 
+class IntegrityCheckFailed(SentinelError):
+    # Stored content no longer matches the hash recorded when it was written
+    # (Phase 13 report downloads). Served as an error, never as the file.
+    code = "integrity_failed"
+    status_code = 500
+    default_message = "The stored file failed its integrity check and was not served."
+
+
 class ToolTimeout(SentinelError):
     code = "tool_timeout"
     status_code = 504

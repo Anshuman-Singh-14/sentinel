@@ -47,20 +47,26 @@ def merge(steps: Iterable[StepFindings]) -> list[AggregatedFinding]:
 
 
 def risk_summary(
-    findings: list[AggregatedFinding], *, completed_steps: int, failed_steps: int
+    findings: list[AggregatedFinding],
+    *,
+    completed_steps: int,
+    failed_steps: int,
+    unit: str = "step",
 ) -> RiskSummary:
+    """Counts plus a one-line headline. ``unit`` names what was executed
+    ("step" for playbooks, "run" when a report covers a single tool run)."""
     counts = {severity: 0 for severity in ORDER}
     for finding in findings:
         counts[finding.severity] += 1
     highest = next((s for s in ORDER if counts[s]), None)
     parts = [f"{counts[s]} {s.value.lower()}" for s in ORDER if counts[s]]
     if highest is None:
-        headline = f"No findings from {completed_steps} completed step(s)."
+        headline = f"No findings from {completed_steps} completed {unit}(s)."
     else:
         headline = (
             f"Highest severity {highest.value}: {', '.join(parts)} finding(s) "
-            f"from {completed_steps} completed step(s)."
+            f"from {completed_steps} completed {unit}(s)."
         )
     if failed_steps:
-        headline += f" {failed_steps} step(s) did not complete, so coverage is partial."
+        headline += f" {failed_steps} {unit}(s) did not complete, so coverage is partial."
     return RiskSummary(total=len(findings), by_severity=counts, highest=highest, headline=headline)
