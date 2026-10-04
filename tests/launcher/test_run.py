@@ -286,6 +286,13 @@ class CommandTests(unittest.TestCase):
         answers: Sequence[str] = (),
     ) -> tuple[int, str, str]:
         replies = iter(answers)
+
+        def fake_input(_prompt: str) -> str:
+            reply = next(replies, None)
+            if reply is None:
+                raise EOFError  # like input() at end of stdin
+            return reply
+
         with (
             checkout(with_env=with_env),
             mock.patch("run.shutil.which", return_value="/usr/bin/docker"),
@@ -293,7 +300,7 @@ class CommandTests(unittest.TestCase):
             mock.patch.object(run, "wait_for_health", return_value=True),
             mock.patch("run.webbrowser.open") as browser,
             mock.patch("run.sys.stdin.isatty", return_value=tty),
-            mock.patch("builtins.input", lambda _prompt: next(replies)),
+            mock.patch("builtins.input", fake_input),
         ):
             result: tuple[int, str, str] = quiet(lambda: run.main(argv))
             self.browser = browser
@@ -346,6 +353,17 @@ class CommandTests(unittest.TestCase):
         self.assertNotIn("-T", create)  # interactive, so the password prompt gets a TTY
         self.assertFalse(any("password" in arg.lower() for arg in create))
 
+    def test_no_admin_and_end_of_input_prints_the_manual_command(self) -> None:
+        # Windows reports the NUL device as a TTY, so a "terminal" can still hit EOF.
+        fake = FakeDocker({"admin-exists": run.NO_ADMIN_EXIT_CODE})
+        code, out, _ = self.run_main([], fake, tty=True, answers=[])
+
+        self.assertEqual(code, 0)
+        self.assertIn("No input available", out)
+        self.assertIn("app.cli create-admin --username admin", out)
+        self.assertFalse(any("create-admin" in c for c in fake.commands()))
+        self.browser.assert_called_once()
+
     def test_stop_includes_lab_profile(self) -> None:
         fake = FakeDocker()
         code, _, _ = self.run_main(["--stop", "--no-lab"], fake)
@@ -360,6 +378,13 @@ class CommandTests(unittest.TestCase):
     def test_reset_declined_deletes_nothing(self) -> None:
         fake = FakeDocker()
         code, out, _ = self.run_main(["--reset"], fake, tty=True, answers=[""])
+        self.assertEqual(code, 1)
+        self.assertIn("nothing was deleted", out)
+        self.assertFalse(any("down" in c for c in fake.commands()))
+
+    def test_reset_end_of_input_counts_as_no(self) -> None:
+        fake = FakeDocker()
+        code, out, _ = self.run_main(["--reset"], fake, tty=True, answers=[])
         self.assertEqual(code, 1)
         self.assertIn("nothing was deleted", out)
         self.assertFalse(any("down" in c for c in fake.commands()))

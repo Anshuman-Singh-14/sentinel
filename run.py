@@ -216,6 +216,9 @@ def run_docker(
     shutil.which. Interactive calls (admin prompt, logs -f) pass no timeout and
     end when the operator ends them.
     """
+    # Our buffered output must reach the screen before Docker starts writing,
+    # or messages appear out of order when stdout is a pipe.
+    sys.stdout.flush()
     # Fixed argv, no shell: the documented exception in ADR 0013.
     return subprocess.run(  # noqa: S603  # nosec B603
         [docker, *args],
@@ -330,7 +333,15 @@ def ensure_admin(docker: str, base: list[str], *, prod: bool, interactive: bool)
         )
         return
     print("\nNo admin account yet. Let's create the first one.")
-    username = ask_username()
+    try:
+        username = ask_username()
+    except EOFError:
+        # isatty() can't be trusted alone: on Windows the NUL device reports
+        # itself as a terminal. No input means no prompt, not a traceback.
+        print(
+            "\nNo input available. To create the admin later, run:\n  " + manual_admin_command(prod)
+        )
+        return
     # The backend CLI asks for the password itself (twice, not echoed), so it
     # never appears in argv, shell history or `ps` output.
     created = run_docker(
@@ -342,9 +353,12 @@ def ensure_admin(docker: str, base: list[str], *, prod: bool, interactive: bool)
 
 
 def confirm_reset() -> bool:
-    answer = input(
-        "This deletes ALL Sentinel data (users, runs, reports, audit log). Continue? [y/N]: "
-    )
+    try:
+        answer = input(
+            "This deletes ALL Sentinel data (users, runs, reports, audit log). Continue? [y/N]: "
+        )
+    except EOFError:
+        return False  # no answer is "No"
     return answer.strip().lower() in {"y", "yes"}
 
 
