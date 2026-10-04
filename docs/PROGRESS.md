@@ -84,10 +84,26 @@ containers. See `docs/adr/0001-architecture-and-stack.md`.
   `shell=False`, an absolute `docker` path, fixed commands, a validated
   username as the only operator input, and timeouts on non-interactive calls.
   CLAUDE.md records the exception.
-- **Tests:** 33 stdlib `unittest` tests with every docker call mocked, run on
+- **Tests:** 35 stdlib `unittest` tests with every docker call mocked, run on
   the host and in CI. The integration test for `admin-exists` runs in the
-  compose test profile. CI has a new launcher step: ruff and mypy `--strict`
+  compose test profile (120 integration tests pass). CI has a new launcher step: ruff and mypy `--strict`
   as Python 3.10 code, bandit `-ll`, and the unittest suite.
+- **Verified live (Windows 11, Docker Desktop 29.8.1, Compose v5.5.1):**
+  - From a clean Docker install (no `.env`, images or volumes), `python run.py`
+    reached a healthy stack and a 200 on `/login` in about 2 minutes.
+  - A fresh `git clone` of the branch, in an isolated compose project with
+    cached images, did the same in 33 s.
+  - `--prod` served `/login` and `/health` through nginx on 8080, with the API
+    port unpublished.
+  - `--stop` cleared both stacks.
+  - `--reset` with no answer deleted nothing.
+- **Bugs that only the live run found, now fixed:**
+  - On Windows the NUL device reports itself as a TTY, so the admin prompt hit
+    EOF. EOF now falls back to printing the manual command.
+  - Launcher messages appeared after Docker's output when stdout was piped.
+    The launcher now flushes before each docker call.
+- **Not verified by the agent:** the interactive admin prompt in a real
+  terminal; it needs a human to type the password.
 - **Docs:** the README demo leads with `python run.py` and keeps the manual
   steps as a fallback; CLAUDE.md commands, CHANGELOG and threat model T69
   are updated.
