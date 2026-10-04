@@ -1,0 +1,74 @@
+# Sentinel production profile: an override layered on docker-compose.yml.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build -d
+#
+# What changes compared with the development stack (ADR 0011):
+# * Backend services run the `runtime` image: app code baked in as root-owned
+#   files, no dev tools, no source bind mount, no --reload.
+# * The frontend is the static production build served by unprivileged nginx,
+#   which also reverse-proxies /api, /health, /ready and /ws to the API. It is
+#   the only published port: the API is no longer reachable from the host.
+# * Root filesystems are read-only, with a small tmpfs for /tmp.
+# * ENVIRONMENT=production: JSON logs, no /docs, HSTS on API responses,
+#   COOKIE_SECURE=false refused at startup.
+# * nginx gets a pinned address, and the API trusts X-Forwarded-For from that
+#   address only (not the whole edge subnet, which includes Docker's gateway),
+#   so audit records show the real client IP and nobody else can forge it.
+#
+# Everything else (networks, scope denylist, least-privilege DB roles, the
+# lab profile, health checks) is inherited unchanged.
+
+x-prod-backend: &prod-backend
+  build:
+    context: ./backend
+    target: runtime
+  image: sentinel-backend:prod
+  volumes: !reset []
+  read_only: true
+  tmpfs:
+    - /tmp:size=64m,mode=1777
+
+services:
+  migrate:
+    <<: *prod-backend
+    environment:
+      ENVIRONMENT: production
+
+  api:
+    <<: *prod-backend
+    command: ["uvicorn", "app.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--no-access-log", "--no-proxy-headers", "--log-config", "uvicorn-logging.json", "--workers", "2"]
+    environment:
+      ENVIRONMENT: production
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      CORS_ORIGINS: ${PROD_ORIGIN:-http://localhost:8080}
+      TRUSTED_PROXIES: ${SENTINEL_FRONTEND_IP:-10.231.1.10}/32
+    ports: !reset []
+
+  worker:
+    <<: *prod-backend
+    environment:
+      ENVIRONMENT: production
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      CORS_ORIGINS: ${PROD_ORIGIN:-http://localhost:8080}
+
+  frontend:
+    build:
+      context: ./frontend
+      target: prod
+    image: sentinel-frontend:prod
+    environment: !reset {}
+    volumes: !reset []
+    networks: !override
+      edge:
+        ipv4_address: ${SENTINEL_FRONTEND_IP:-10.231.1.10}
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    ports: !override
+      - "127.0.0.1:${PROD_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:8080/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
