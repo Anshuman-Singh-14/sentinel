@@ -1,4 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useId, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 
 import { NotFoundPage } from "../../app/NotFoundPage";
@@ -30,11 +31,63 @@ export function fieldErrors(error: unknown, root = "params"): Record<string, str
   return out;
 }
 
+function formatMegabytes(bytes: number): string {
+  const mb = 1024 * 1024;
+  return bytes >= mb
+    ? `${Math.round(bytes / mb)} MB`
+    : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+}
+
+/**
+ * File picker for tools that accept uploads (ADR 0014). The file goes to the
+ * server as the raw request body; its contents are never read or kept by the
+ * browser app itself. The size limit is checked here for fast feedback and
+ * enforced again by the server.
+ */
+function FilePicker({
+  maxBytes,
+  error,
+  onChange,
+}: {
+  maxBytes: number | null | undefined;
+  error: string | null;
+  onChange: (file: File | null) => void;
+}) {
+  const id = useId();
+  return (
+    <div className="flex flex-col gap-1.5">
+      <label htmlFor={id} className="text-xs font-semibold tracking-wider text-muted uppercase">
+        Upload a file
+      </label>
+      <input
+        id={id}
+        type="file"
+        aria-describedby={`${id}-hint`}
+        aria-invalid={error ? true : undefined}
+        className="text-sm text-text file:mr-3 file:rounded file:border file:border-border-strong file:bg-surface file:px-3 file:py-1.5 file:text-sm file:text-text"
+        onChange={(event) => onChange(event.target.files?.[0] ?? null)}
+      />
+      <p id={`${id}-hint`} className="text-xs text-muted">
+        Optional{maxBytes ? `, up to ${formatMegabytes(maxBytes)}` : ""}. Plain text or .gz. The
+        file is analysed on the server and deleted when the run ends.
+      </p>
+      {error && (
+        <p role="alert" className="text-xs text-fail">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function RunForm({ tool }: { tool: ToolDescriptor }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const [file, setFile] = useState<File | null>(null);
+  const [fileError, setFileError] = useState<string | null>(null);
   const start = useMutation({
-    mutationFn: (params: Record<string, unknown>) => runsApi.create(tool.tool_id, params),
+    mutationFn: (params: Record<string, unknown>) =>
+      file ? runsApi.upload(tool.tool_id, file, params) : runsApi.create(tool.tool_id, params),
     onSuccess: (run) => {
       queryClient.setQueryData(runQueryKey(run.run_id), run);
       void queryClient.invalidateQueries({ queryKey: ["runs", "list"] });
@@ -52,11 +105,25 @@ function RunForm({ tool }: { tool: ToolDescriptor }) {
   const generalError =
     start.isError && Object.keys(serverErrors).length === 0 ? errorMessage(start.error) : null;
 
+  function chooseFile(chosen: File | null) {
+    const max = tool.max_upload_bytes;
+    if (chosen && max && chosen.size > max) {
+      setFile(null);
+      setFileError(`That file is larger than the ${formatMegabytes(max)} limit.`);
+      return;
+    }
+    setFileError(null);
+    setFile(chosen);
+  }
+
   return (
     <div className="flex flex-col gap-3">
+      {tool.accepts_upload && (
+        <FilePicker maxBytes={tool.max_upload_bytes} error={fileError} onChange={chooseFile} />
+      )}
       <SchemaForm
         schema={tool.params_schema as ObjectSchema}
-        submitLabel="Run"
+        submitLabel={file ? "Upload and run" : "Run"}
         busy={start.isPending}
         serverErrors={serverErrors}
         onSubmit={(params) => start.mutate(params)}
