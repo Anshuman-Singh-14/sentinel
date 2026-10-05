@@ -150,7 +150,13 @@ class Settings(LoggingSettings):
     # Scope policy (Phase 6, ADR 0007). Infra subnets are always denied to
     # active tools; the default allow list is loopback plus the lab network.
     scope_infra_subnets: Annotated[list[str], NoDecode] = Field(
-        default_factory=lambda: ["10.231.0.0/24", "10.231.1.0/24", "10.231.2.0/24"]
+        default_factory=lambda: [
+            "10.231.0.0/24",
+            "10.231.1.0/24",
+            "10.231.2.0/24",
+            "10.231.3.0/24",
+            "10.231.4.0/24",
+        ]
     )
     scope_default_allow: Annotated[list[str], NoDecode] = Field(
         default_factory=lambda: ["127.0.0.0/8", "::1/128", "10.231.10.0/24"]
