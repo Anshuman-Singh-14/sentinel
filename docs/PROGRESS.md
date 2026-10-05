@@ -12,7 +12,7 @@
 | 7 | Header & TLS checker | Complete (merged, PR #16) | 570 backend tests; fixture servers + live lab verified; ADR 0008 |
 | 8 | Threat intel | Complete (merged, PR #22) | 820 backend + 338 frontend tests; AbuseIPDB, VirusTotal, Shodan (mocked); playbook intel step live; ADR 0012 |
 | 9 | Network diagnostics | Not started (build 7th) | Stretch. Traceroute best-effort on Docker Desktop |
-| 10 | Log analyzer | Complete (PR pending) | 810 unit + 126 integration backend tests, 342 frontend; sample logs → exact detections; ADR 0014 |
+| 10 | Log analyzer | Complete (merged, PR #26) | 810 unit + 126 integration backend tests, 342 frontend; sample logs → exact detections; ADR 0014 |
 | 11 | File integrity monitor | Not started (build 6th) | Stretch. Demo on a named volume, not a Windows bind mount. Add `beat` to the prod profile |
 | 12 | Playbook engine | Complete (merged, PR #19) | Built 1st of the remaining phases; 618 backend + 327 frontend tests; ADR 0009 |
 | 13 | Reporting & export | Complete (merged, PR #20) | 691 backend + 335 frontend tests; live playbook PDF verified; ADR 0010 |
@@ -21,8 +21,13 @@
 ## Releases
 
 - **v1.0.0** (2026-10-04): capstone core (Phases 0–8, 12–14). See `CHANGELOG.md`.
-- **Unreleased** (2026-10-04): one-file launcher `python run.py` (chore, not a phase; ADR 0013);
-  Phase 10 log analyzer (ADR 0014).
+- **Unreleased** (2026-10-04): one-file launcher `python run.py` (chore, not a phase; ADR 0013;
+  PR #25); Phase 10 log analyzer (ADR 0014; PR #26).
+
+## Collaboration (2026-10-05)
+
+Two developers now work in parallel. The to-do list is GitHub Issues: the assignee holds the
+lock. `main` is protected (PR only, CI green, branch up to date). Protocol: `docs/COLLABORATION.md`.
 
 ## Build order (approved 2026-10-02, ADR 0009)
 

@@ -51,6 +51,17 @@ Sentinel is an educational and defensive platform. It does not replace professio
 
 ---
 
+## Two developers, two Claude sessions
+
+Two people build Sentinel in parallel, each with their own Claude Code. Follow `docs/COLLABORATION.md`. In short:
+
+- **Before any work:** run `git fetch --prune`, `gh issue list` and `gh pr list`. Never start work that has no issue, or whose issue someone else is assigned to.
+- **Claim first:** assign the issue to yourself and branch from a fresh `main`. Open a draft PR (`Closes #N`) with your first push.
+- **Shared files** (`CHANGELOG.md`, `docs/PROGRESS.md`, migrations, lockfiles, numbered ADR and threat IDs) follow the rules in the table in `docs/COLLABORATION.md`.
+- **Rebase often.** `main` is protected: merge only through a PR, with CI green and the branch up to date.
+
+---
+
 ## Commands (keep this section updated as the project grows)
 
 ```bash
