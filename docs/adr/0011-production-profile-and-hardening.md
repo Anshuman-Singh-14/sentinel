@@ -143,7 +143,8 @@ is: clone, run the script, `docker compose --profile lab up --build -d
 
 ### 9. Deferred, with reasons
 
-- **Observability profile (OpenTelemetry, Prometheus, Loki):** the spec marks
+- **Observability profile (OpenTelemetry, Prometheus, Loki):** *(added later
+  as ADR 0016: metrics and logs; traces still deferred.)* The spec marks
   it optional, and it would add several dependencies and services.
   Structured JSON logs with request IDs, shippable by any Docker logging
   driver, cover the capstone's needs. Revisit after Phases 8–11.

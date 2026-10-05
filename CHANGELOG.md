@@ -7,6 +7,17 @@ All notable changes to Sentinel. The format follows
 ## [Unreleased]
 
 ### Added
+- **Observability profile (optional, ADR 0016):**
+  - `GET /metrics`, off unless `METRICS_TOKEN` is set, bearer-protected.
+    HTTP request counts and latency by route template (multiprocess-safe),
+    plus runs by tool and status, run durations, queue depth, security
+    alerts and dependency health read from Postgres and Redis at scrape
+    time. New dependency: `prometheus-client` 0.26.0.
+  - Compose profile `observability`: Prometheus, Loki, Grafana Alloy (log
+    shipping from Docker's JSON files, no Docker socket) and Grafana with a
+    provisioned "Sentinel overview" dashboard, on an internal `obs` network
+    that cannot reach the data stores. The new subnets are added to the
+    scope denylist.
 - **File Integrity Monitor (Phase 11, ADR 0015):**
   - Two tools: *FIM: Create Baseline* records SHA-256, size, mtime, mode and
     owner for every entry under a named root (`FIM_ROOTS`, mounted read-only

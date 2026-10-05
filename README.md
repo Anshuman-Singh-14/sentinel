@@ -273,7 +273,7 @@ mitigations, is in [`docs/threat-model.md`](docs/threat-model.md). Highlights:
   encoding tools never send data anywhere.
 
 Design decisions and the reasons for them are recorded in
-[`docs/adr/`](docs/adr) (ADR 0001–0015).
+[`docs/adr/`](docs/adr) (ADR 0001–0016).
 
 ## Production profile
 
@@ -309,6 +309,31 @@ Then open **http://localhost:8080**. The differences are:
 For a real deployment, put TLS in front of nginx and set `PROD_ORIGIN` to the
 public `https://` origin. Production secrets belong in Docker secrets or your
 platform's secret store rather than a `.env` file. Rationale: ADR 0011.
+
+## Observability (optional)
+
+```bash
+LOG_FORMAT=json docker compose --profile lab --profile observability up -d
+```
+
+Then open http://localhost:3000 and sign in as `admin` with `GRAFANA_ADMIN_PASSWORD`
+from `.env`. The provisioned **Sentinel overview** dashboard shows:
+
+- API request rate, 5xx share and p95 latency by route;
+- tool runs and failures by tool, run time, and Celery queue depth;
+- open security alerts and whether the dependencies are up;
+- logs from every service, filterable by request ID, so you can follow one
+  request from the API into the worker.
+
+| Piece | How | Security |
+|---|---|---|
+| Metrics | Prometheus scrapes the API's `/metrics` | Off (404) unless `METRICS_TOKEN` is set; bearer token; not proxied by production nginx; labels use route templates only |
+| Logs | Grafana Alloy tails Docker's JSON log files and pushes them to Loki | Read-only mount, no Docker socket; logs are already redacted |
+| Network | Separate internal `obs` network | Cannot reach Postgres or Redis; Grafana published on 127.0.0.1 only; no update checks or usage reporting |
+
+Retention is 7 days for metrics and logs. Distributed tracing is deliberately not
+included, because the request ID already links API, worker, logs and audit.
+Rationale: ADR 0016.
 
 ## Development and testing
 

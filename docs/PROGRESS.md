@@ -16,7 +16,7 @@
 | 11 | File integrity monitor | Complete (PR pending, #27) | 881 unit + 132 integration backend tests, 351 frontend; tamper demo → 6 exact changes; scheduled check live; ADR 0015 |
 | 12 | Playbook engine | Complete (merged, PR #19) | Built 1st of the remaining phases; 618 backend + 327 frontend tests; ADR 0009 |
 | 13 | Reporting & export | Complete (merged, PR #20) | 691 backend + 335 frontend tests; live playbook PDF verified; ADR 0010 |
-| 14 | Observability & polish | Complete (merged, PR #21) | 768 backend + 335 frontend tests; prod profile; fresh clone → demo in ~2.5 min; ADR 0011. Observability stack deferred (optional) |
+| 14 | Observability & polish | Complete (merged, PR #21) | 768 backend + 335 frontend tests; prod profile; fresh clone → demo in ~2.5 min; ADR 0011. Optional observability profile added later (ADR 0016, issue #32) |
 
 ## Releases
 
@@ -66,14 +66,41 @@ containers. See `docs/adr/0001-architecture-and-stack.md`.
   owner-role maintenance task for the deployment's data policy (ADR 0011).
 - Threat intel was verified against mocked provider APIs only (no keys were available). With real
   keys, run one lookup per provider and check the findings and quotas.
-- Optional observability profile (OpenTelemetry, Prometheus, Loki) deferred; revisit after
-  Phases 8–11 (ADR 0011).
+- Observability profile (ADR 0016) ships metrics and logs; distributed tracing (OpenTelemetry)
+  is deliberately deferred, because the request ID already correlates API, worker, logs and audit.
 - Log analyzer: README screenshots were not refreshed for the new tool (needs a signed-in
   browser session). Raising the upload limit means raising `LOG_UPLOAD_MAX_MB` and the nginx
   `client_max_body_size` (55 MB) together.
 - Dev DB has leftover smoke-test admins (`p3smoke`, `p5smoke`, `e2ereports`). Disable them
   from another admin account before any shared demo (the load-test analysts and `analyst1`,
   used for the README screenshots, are already disabled).
+
+## Observability profile log (2026-10-05, branch `feat/observability-profile`, issue #32)
+
+- **Scope:** the optional part of Phase 14 (03-logging-audit.md section 8), deferred in ADR 0011.
+- **Built (ADR 0016):**
+  - `/metrics`, off without `METRICS_TOKEN` and bearer-protected:
+    - HTTP metrics by route template (multiprocess mode for uvicorn workers);
+    - business metrics computed from Postgres and Redis at scrape time;
+    - `dependency_up` reports a down dependency instead of returning a 500.
+  - Compose profile `observability`:
+    - Prometheus v3.15.0, Loki 3.7.8, Alloy v1.20.1, Grafana 13.2.3;
+    - an internal `obs` network, plus `obs_ui` for Grafana's localhost port;
+    - every service with all capabilities dropped and a read-only root
+      filesystem.
+  - Logs ship from Docker's JSON log files mounted read-only. There is no
+    Docker socket and no logging-driver plugin (the spec suggested a driver;
+    see ADR 0016 for why).
+- **Not built:** OpenTelemetry traces, which would add about 10 packages and
+  a collector. The correlation goal is met by the request ID.
+- **Verified live:**
+  - Prometheus target `sentinel-api` is up and run counts match the data.
+  - The p95 latency query returns values.
+  - Loki has `service` labels for api, worker, beat and migrate.
+  - Anonymous Grafana API access gets 401; `/metrics` without a token gets
+    401, and without a configured token gets 404.
+- **Gates:** 889 unit tests and 133 integration tests pass; ruff, mypy and
+  bandit are clean.
 
 ## Phase 11 log (2026-10-05, branch `feat/phase-11-fim`, issue #27)
 
