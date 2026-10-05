@@ -6,7 +6,8 @@
  * Supported: a flat object of string (with enum, minLength, maxLength,
  * pattern), integer/number (minimum, maximum) and boolean properties, plus
  * `required`, `default`, `description` and `examples`. Anything else is
- * reported as unsupported rather than guessed at.
+ * reported as unsupported rather than guessed at. `readOnly` properties are
+ * set by the server (e.g. an upload's file name) and are not shown.
  *
  * Client checks are for fast feedback only. The backend validates again and
  * its 422 errors (`loc: ["params", field]`) are shown next to the field.
@@ -29,6 +30,7 @@ interface PropertySchema {
   pattern?: string;
   minimum?: number;
   maximum?: number;
+  readOnly?: boolean;
 }
 
 export interface ObjectSchema {
@@ -58,6 +60,7 @@ export function fieldsFromSchema(schema: ObjectSchema): FieldSpec[] | { unsuppor
   const required = new Set(schema.required ?? []);
   const fields: FieldSpec[] = [];
   for (const [name, prop] of Object.entries(schema.properties ?? {})) {
+    if (prop.readOnly) continue;
     let kind: FieldKind;
     if (prop.enum && prop.type === "string") kind = "enum";
     else if (prop.type === "string") kind = "string";

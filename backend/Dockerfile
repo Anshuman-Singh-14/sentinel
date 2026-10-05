@@ -16,6 +16,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 RUN groupadd --system --gid 10001 sentinel \
  && useradd --system --uid 10001 --gid sentinel --no-create-home \
     --home-dir /nonexistent --shell /usr/sbin/nologin sentinel
+# Mount points for the log analyzer (ADR 0014). A new named volume copies the
+# image directory's owner, so the unprivileged user can write uploads there.
+# /data/logs stays root-owned: it is a read-only mount.
+RUN mkdir -p /data/uploads /data/logs \
+ && chown sentinel:sentinel /data/uploads \
+ && chmod 0700 /data/uploads
 WORKDIR /app
 
 FROM base AS deps-base

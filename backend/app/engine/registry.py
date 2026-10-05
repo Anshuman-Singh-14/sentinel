@@ -41,6 +41,9 @@ class ToolDescriptor(BaseModel):
     available: bool = True
     unavailable_reason: str | None = None
     status: dict[str, Any] = {}
+    # Uploads (ADR 0014): the frontend shows a file picker for these tools.
+    accepts_upload: bool = False
+    max_upload_bytes: int | None = None
 
 
 class ToolRegistry:
@@ -85,6 +88,8 @@ class ToolRegistry:
                     available=availability.available,
                     unavailable_reason=availability.reason,
                     status=availability.details,
+                    accepts_upload=tool.accepts_upload,
+                    max_upload_bytes=tool.max_upload_bytes() if tool.accepts_upload else None,
                 )
             )
         return descriptors

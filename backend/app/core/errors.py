@@ -123,6 +123,12 @@ class Conflict(SentinelError):
     default_message = "The request conflicts with the current state."
 
 
+class PayloadTooLarge(SentinelError):
+    code = "payload_too_large"
+    status_code = 413
+    default_message = "The uploaded file is too large."
+
+
 class PasswordPolicyViolation(ValidationFailed):
     code = "password_policy"
     default_message = "The password does not meet the password policy."

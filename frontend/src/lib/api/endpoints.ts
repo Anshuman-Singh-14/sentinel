@@ -25,6 +25,8 @@ import type {
 import { api, download } from "./client";
 
 const V1 = "/api/v1";
+// Uploads of up to ~50 MB on a slow link need far longer than the 10 s default.
+const UPLOAD_TIMEOUT_MS = 5 * 60_000;
 
 export const authApi = {
   // Login and refresh never trigger the refresh-and-retry path: a 401 from
@@ -92,6 +94,13 @@ export interface RunFilters {
 export const runsApi = {
   create: (toolId: string, params: Record<string, unknown>) =>
     api.post<RunDetail>(`${V1}/tools/${encodeURIComponent(toolId)}/runs`, { params }),
+  /** Start a run on a file. The body is the raw file, streamed by the browser. */
+  upload: (toolId: string, file: File, params: Record<string, unknown>) =>
+    api.post<RunDetail>(`${V1}/tools/${encodeURIComponent(toolId)}/runs/upload`, undefined, {
+      file,
+      query: { filename: file.name, params: JSON.stringify(params) },
+      timeoutMs: UPLOAD_TIMEOUT_MS,
+    }),
   get: (runId: string, signal?: AbortSignal) =>
     api.get<RunDetail>(`${V1}/runs/${encodeURIComponent(runId)}`, { signal }),
   list: (filters: RunFilters, before?: string, signal?: AbortSignal) =>

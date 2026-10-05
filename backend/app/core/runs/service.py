@@ -51,7 +51,7 @@ ACTIVE_STATUSES = (RunStatus.QUEUED.value, RunStatus.RUNNING.value)
 PAGE_MAX = 100
 
 
-def _param_errors(exc: ValidationError) -> list[dict[str, Any]]:
+def param_errors(exc: ValidationError) -> list[dict[str, Any]]:
     # Same redaction rule as the global handler: never echo the input back.
     return [
         {
@@ -87,6 +87,8 @@ class RunService:
         principal: Principal,
         *,
         playbook_run_id: uuid.UUID | None = None,
+        run_id: uuid.UUID | None = None,
+        upload: dict[str, Any] | None = None,
     ) -> ToolRun:
         """Validate, authorise, persist and (unless part of a playbook) dispatch a run.
 
@@ -95,6 +97,11 @@ class RunService:
         runs. The differences: they are not rate-limited individually
         (starting the playbook was), and they are not dispatched, because the
         playbook orchestrator executes them in order itself.
+
+        ``run_id`` and ``upload`` come from the upload route (ADR 0014): the
+        file is stored under the run id *before* the run exists, so the
+        worker can never start before its file is in place. ``upload`` (name
+        and size, never contents) is added to the audit details.
         """
         tool = tool_cls()
         if not role_allows(principal.role, tool.required_role):
@@ -116,7 +123,7 @@ class RunService:
             params = tool.params_model.model_validate(raw_params)
         except ValidationError as exc:
             raise ValidationFailed(
-                "The tool parameters are invalid.", details={"errors": _param_errors(exc)}
+                "The tool parameters are invalid.", details={"errors": param_errors(exc)}
             ) from None
         target = tool.target_of(params)
 
@@ -149,7 +156,7 @@ class RunService:
             await self._enforce_quotas(principal)
 
         run = ToolRun(
-            id=uuid7(),
+            id=run_id or uuid7(),
             tool_id=tool.tool_id,
             tool_name=tool.name,
             tool_version=tool.version,
@@ -174,9 +181,21 @@ class RunService:
                 "tool_id": tool.tool_id,
                 "tool_version": tool.version,
                 **({"playbook_run_id": str(playbook_run_id)} if playbook_run_id else {}),
+                **({"upload": upload} if upload else {}),
             },
             session=self.db,
         )
+        if tool.request_audit_action is not None:
+            await self.audit.record(
+                tool.request_audit_action,
+                actor=principal.actor,
+                outcome=Outcome.SUCCESS,
+                resource_type="tool_run",
+                resource_id=str(run.id),
+                target=target,
+                details={"tool_id": tool.tool_id, **({"upload": upload} if upload else {})},
+                session=self.db,
+            )
         await self.db.commit()
         if playbook_run_id is not None:
             return run  # executed inline by the playbook orchestrator

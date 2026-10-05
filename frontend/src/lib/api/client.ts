@@ -30,6 +30,8 @@ export type QueryValue = string | number | boolean | null | undefined;
 
 export interface RequestOptions {
   body?: unknown;
+  /** A file sent as the raw request body (uploads, ADR 0014). Excludes `body`. */
+  file?: Blob;
   query?: Record<string, QueryValue>;
   signal?: AbortSignal;
   timeoutMs?: number;
@@ -77,7 +79,8 @@ async function send(method: HttpMethod, url: string, options: RequestOptions): P
   const signal = options.signal ? AbortSignal.any([options.signal, timeout]) : timeout;
 
   const headers: Record<string, string> = { Accept: "application/json" };
-  if (options.body !== undefined) headers["Content-Type"] = "application/json";
+  if (options.file !== undefined) headers["Content-Type"] = "application/octet-stream";
+  else if (options.body !== undefined) headers["Content-Type"] = "application/json";
   if (!SAFE_METHODS.has(method)) {
     const csrf = readCsrfToken();
     if (csrf) headers[CSRF_HEADER] = csrf;
@@ -87,7 +90,7 @@ async function send(method: HttpMethod, url: string, options: RequestOptions): P
     return await fetch(url, {
       method,
       headers,
-      body: options.body === undefined ? undefined : JSON.stringify(options.body),
+      body: options.file ?? (options.body === undefined ? undefined : JSON.stringify(options.body)),
       credentials: "same-origin",
       cache: "no-store",
       redirect: "error",

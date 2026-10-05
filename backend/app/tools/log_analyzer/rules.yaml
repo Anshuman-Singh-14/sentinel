@@ -1,0 +1,122 @@
+# Detection rules for the log analyzer (02-modules.md, tool 5; ADR 0014).
+#
+# Rules are data: thresholds and windows can be tuned here without touching
+# code. Each rule picks one of five built-in detectors:
+#
+#   burst     threshold events of the listed kinds from one IP within window_seconds
+#   distinct  threshold different values of `field` from one IP (e.g. user names)
+#   sequence  a `then` event from an IP that first produced threshold `events`
+#             (within window_seconds of the last one)
+#   match     events whose `field` equals / contains one of the values, or that a
+#             named built-in matcher flags (path_traversal)
+#   spike     threshold responses with the listed status classes in one
+#             bucket_seconds bucket (whole log, not per IP)
+#
+# Matching is done by plain string comparison and a fixed decoder in code, never
+# by regular expressions from this file, so a rule edit cannot introduce a
+# catastrophic-backtracking pattern. Explanations, severities and their
+# rationale live in app/engine/knowledge/log_analyzer.yaml under `knowledge`.
+schema_version: 1
+version: "1.0.0"
+rules:
+  - id: ssh_bruteforce
+    title: SSH password-guessing burst
+    parser: auth_log
+    detector: burst
+    events: [ssh_failed]
+    threshold: 5
+    window_seconds: 60
+    category: SSH_BRUTE_FORCE
+    knowledge: log_analyzer.ssh_bruteforce
+
+  - id: invalid_user_enumeration
+    title: SSH user-name enumeration
+    parser: auth_log
+    detector: distinct
+    events: [ssh_invalid_user]
+    field: user
+    threshold: 3
+    category: SSH_USER_ENUMERATION
+    knowledge: log_analyzer.invalid_user_enumeration
+
+  - id: success_after_failures
+    title: Successful SSH login after repeated failures
+    parser: auth_log
+    detector: sequence
+    events: [ssh_failed]
+    then: ssh_accepted
+    threshold: 3
+    window_seconds: 3600
+    category: SSH_SUCCESS_AFTER_FAILURES
+    knowledge: log_analyzer.success_after_failures
+
+  - id: root_login_attempt
+    title: SSH login attempt as root
+    parser: auth_log
+    detector: match
+    events: [ssh_failed, ssh_accepted]
+    field: user
+    equals: [root]
+    threshold: 1
+    category: SSH_ROOT_LOGIN
+    knowledge: log_analyzer.root_login_attempt
+
+  - id: path_traversal
+    title: Path traversal attempt
+    parser: nginx_access
+    detector: match
+    events: [http_request]
+    builtin: path_traversal
+    threshold: 1
+    category: WEB_PATH_TRAVERSAL
+    knowledge: log_analyzer.path_traversal
+
+  - id: scanner_user_agent
+    title: Known vulnerability-scanner user agent
+    parser: nginx_access
+    detector: match
+    events: [http_request]
+    field: user_agent
+    contains_any:
+      - nikto
+      - sqlmap
+      - nmap
+      - masscan
+      - zgrab
+      - gobuster
+      - dirbuster
+      - dirb/
+      - wpscan
+      - nuclei
+      - acunetix
+      - nessus
+      - openvas
+      - wfuzz
+      - ffuf
+      - feroxbuster
+      - whatweb
+      - censysinspect
+    threshold: 1
+    category: WEB_SCANNER
+    knowledge: log_analyzer.scanner_user_agent
+
+  - id: high_request_rate
+    title: High request rate from one address
+    parser: nginx_access
+    detector: burst
+    events: [http_request]
+    threshold: 120
+    window_seconds: 60
+    category: WEB_HIGH_REQUEST_RATE
+    knowledge: log_analyzer.high_request_rate
+
+  - id: error_spike
+    title: Spike in error responses
+    parser: nginx_access
+    detector: spike
+    events: [http_request]
+    statuses: [4xx, 5xx]
+    threshold: 50
+    bucket_seconds: 60
+    category: WEB_ERROR_SPIKE
+    knowledge: log_analyzer.error_spike

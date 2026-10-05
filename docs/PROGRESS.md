@@ -12,7 +12,7 @@
 | 7 | Header & TLS checker | Complete (merged, PR #16) | 570 backend tests; fixture servers + live lab verified; ADR 0008 |
 | 8 | Threat intel | Complete (merged, PR #22) | 820 backend + 338 frontend tests; AbuseIPDB, VirusTotal, Shodan (mocked); playbook intel step live; ADR 0012 |
 | 9 | Network diagnostics | Not started (build 7th) | Stretch. Traceroute best-effort on Docker Desktop |
-| 10 | Log analyzer | Not started (build 5th) | Stretch |
+| 10 | Log analyzer | Complete (PR pending) | 810 unit + 126 integration backend tests, 342 frontend; sample logs → exact detections; ADR 0014 |
 | 11 | File integrity monitor | Not started (build 6th) | Stretch. Demo on a named volume, not a Windows bind mount. Add `beat` to the prod profile |
 | 12 | Playbook engine | Complete (merged, PR #19) | Built 1st of the remaining phases; 618 backend + 327 frontend tests; ADR 0009 |
 | 13 | Reporting & export | Complete (merged, PR #20) | 691 backend + 335 frontend tests; live playbook PDF verified; ADR 0010 |
@@ -21,7 +21,8 @@
 ## Releases
 
 - **v1.0.0** (2026-10-04): capstone core (Phases 0–8, 12–14). See `CHANGELOG.md`.
-- **Unreleased** (2026-10-04): one-file launcher `python run.py` (chore, not a phase; ADR 0013).
+- **Unreleased** (2026-10-04): one-file launcher `python run.py` (chore, not a phase; ADR 0013);
+  Phase 10 log analyzer (ADR 0014).
 
 ## Build order (approved 2026-10-02, ADR 0009)
 
@@ -66,11 +67,60 @@ containers. See `docs/adr/0001-architecture-and-stack.md`.
   keys, run one lookup per provider and check the findings and quotas.
 - Optional observability profile (OpenTelemetry, Prometheus, Loki) deferred; revisit after
   Phases 8–11 (ADR 0011).
+- Log analyzer: README screenshots were not refreshed for the new tool (needs a signed-in
+  browser session). Raising the upload limit means raising `LOG_UPLOAD_MAX_MB` and the nginx
+  `client_max_body_size` (55 MB) together.
 - Dev DB has leftover smoke-test admins (`p3smoke`, `p5smoke`, `e2ereports`). Disable them
   from another admin account before any shared demo (the load-test analysts and `analyst1`,
   used for the README screenshots, are already disabled).
 
-## Chore log: one-file launcher (2026-10-04, branch `chore/one-file-launcher`)
+## Phase 10 log (2026-10-04, branch `feat/phase-10-log-analyzer`)
+
+- **Order:** built 5th of the remaining phases (ADR 0009). Checklist:
+  - The Phase 13 exporters render the new findings: the integration test
+    exports PDF and CSV from a log-analyzer run.
+  - The README tool list and demo table are updated. The screenshots are
+    not (see Known limitations).
+- **Framework additions (generic, ADR 0014):**
+  - `accepts_upload`, `max_upload_bytes()` and `request_audit_action` on
+    `BaseTool`, and `upload_path` on `ToolContext`.
+  - `POST /tools/{id}/runs/upload`, which takes the raw file body: no
+    multipart, no new dependency.
+  - `RunService.create(run_id=..., upload=...)`.
+  - `PathGuard` (`app/core/security/paths.py`) and the upload store
+    (`app/core/uploads.py`).
+  - `PayloadTooLarge` (413).
+  - `readOnly` schema fields are hidden by `SchemaForm`; the tool page
+    shows a file picker for upload tools.
+- **The tool:**
+  - Parser plugins `auth_log` (syslog with year inference, RFC 3339,
+    `sshd-session`) and `nginx_access` (combined), with auto-detection.
+  - Eight YAML rules over five bounded detectors.
+  - A knowledge base with documented severity criteria and escalations.
+  - gzip support, with a cap on decompressed size.
+- **Acceptance:**
+  - The fixtures (`backend/tests/fixtures/logs`, generated deterministically)
+    produce exactly the expected detection set: auth.log 5, nginx 7.
+  - Traversal: `../`, encoded variants, absolute paths, null bytes, symlink
+    escapes, and a symlink swapped in after the check, are all refused (unit,
+    tool and integration level).
+  - Memory: 100k lines peak under 2× the 10k-line peak and under ¼ of the
+    file size.
+- **Live on the dev stack:**
+  - The worker runs as uid 10001 with a writable `/data/uploads` (0700) and
+    a read-only `/data/logs`.
+  - The API can write uploads.
+  - A real run on the sample nginx log completed; `../../etc/passwd` was
+    refused; an upload without a session gets 401.
+  - The production nginx config passes `nginx -t`.
+- **Found while building, fixed before commit:**
+  - An empty `LOG_ROOT` would have parsed as `Path(".")` (the app dir).
+  - `PathRejected` raised inside a Pydantic validator would have been a 500.
+  - The traversal matcher reported "sensitive file" before a double-encoded
+    `..`.
+  - Upload writes blocked the event loop (moved to a thread).
+
+ (2026-10-04, branch `chore/one-file-launcher`)
 
 - **What:** `run.py` at the repo root.
   - Docker and Compose preflight.

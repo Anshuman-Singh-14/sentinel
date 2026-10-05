@@ -56,6 +56,11 @@ x-backend-env: &backend-env
   ABUSEIPDB_API_KEY: ${ABUSEIPDB_API_KEY:-}
   VIRUSTOTAL_API_KEY: ${VIRUSTOTAL_API_KEY:-}
   SHODAN_API_KEY: ${SHODAN_API_KEY:-}
+  # Log analyzer (Phase 10, ADR 0014). Uploads land in the shared `uploads`
+  # volume under the run id; LOG_ROOT is a read-only mount on the worker only.
+  UPLOAD_DIR: /data/uploads
+  LOG_ROOT: /data/logs
+  LOG_UPLOAD_MAX_MB: ${LOG_UPLOAD_MAX_MB:-50}
 
 services:
   postgres:
@@ -135,6 +140,8 @@ services:
       WATCHFILES_FORCE_POLLING: ${WATCHFILES_FORCE_POLLING:-false}
     volumes:
       - ./backend:/app
+      # The API writes uploads here; the worker reads and deletes them.
+      - uploads:/data/uploads
     ports:
       - "127.0.0.1:${API_PORT:-8000}:8000"
     networks: [internal, edge]
@@ -163,6 +170,10 @@ services:
       <<: *backend-env
     volumes:
       - ./backend:/app
+      - uploads:/data/uploads
+      # Server logs the analyzer may read (read-only). Defaults to the sample
+      # logs; point LOG_ROOT_HOST at e.g. /var/log to analyse real ones.
+      - ${LOG_ROOT_HOST:-./backend/tests/fixtures/logs}:/data/logs:ro
     # `egress` gives the worker outbound internet access for tools (DNS from
     # Phase 5). It is a separate network so the API and data stores stay
     # without egress. Active tools are additionally gated by the scope policy
@@ -335,3 +346,5 @@ networks:
 volumes:
   pgdata:
   frontend_node_modules:
+  # Temporary uploads (deleted after each run). Not backed up on purpose.
+  uploads:

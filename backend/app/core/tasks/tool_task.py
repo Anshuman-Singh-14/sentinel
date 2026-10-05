@@ -26,6 +26,7 @@ from celery.exceptions import SoftTimeLimitExceeded
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import uploads
 from app.core.audit import Actor, ActorType, AuditAction, Outcome, build_audit_service
 from app.core.errors import ScopeDenied
 from app.core.logging import get_logger
@@ -343,6 +344,11 @@ async def execute_run(
             cancel_check=should_cancel,
             authorized_addresses=authorized,
             scope_check=scope_check,
+            upload_path=(
+                uploads.path_for(settings.upload_dir, run_id)
+                if tool.accepts_upload and uploads.exists(settings.upload_dir, run_id)
+                else None
+            ),
         )
         result = await execute_tool(
             tool, run.params, run_id=run_id, initiated_by=run.username, ctx=ctx
@@ -393,3 +399,9 @@ def run_tool(run_id: str) -> str:
         reset_loop()
         run_async(mark_timed_out(parsed))
         return RunStatus.TIMED_OUT.value
+    finally:
+        # An uploaded file lives only as long as its run, whatever the outcome
+        # (completed, failed, cancelled while queued, timed out). ADR 0014.
+        from app.config import get_settings
+
+        uploads.discard(get_settings().upload_dir, parsed)

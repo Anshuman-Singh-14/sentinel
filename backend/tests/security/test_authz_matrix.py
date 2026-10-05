@@ -46,6 +46,7 @@ ROUTES: dict[tuple[str, str], str | Role] = {
     ("POST", "/api/v1/admin/alerts/{alert_id}/acknowledge"): Role.ADMIN,
     ("GET", "/api/v1/tools"): Role.VIEWER,
     ("POST", "/api/v1/tools/{tool_id}/runs"): Role.ANALYST,
+    ("POST", "/api/v1/tools/{tool_id}/runs/upload"): Role.ANALYST,
     ("GET", "/api/v1/runs"): Role.VIEWER,
     ("GET", "/api/v1/runs/{run_id}"): Role.VIEWER,
     ("POST", "/api/v1/runs/{run_id}/cancel"): Role.ANALYST,

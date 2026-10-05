@@ -193,6 +193,18 @@ class Settings(LoggingSettings):
     threat_intel_timeout_seconds: float = Field(default=10.0, gt=0, le=60)
     threat_intel_cache_hours: int = Field(default=6, ge=1, le=168)
 
+    # Uploads and the log analyzer (Phase 10, ADR 0014). The API streams an
+    # uploaded file into `upload_dir` (a volume shared with the worker) under a
+    # name derived from the run id, never from user input. The worker deletes it
+    # after the run. `log_root` is the read-only directory of server logs the
+    # analyzer may open; empty disables that source.
+    upload_dir: Path = Path("/data/uploads")
+    upload_timeout_seconds: int = Field(default=120, ge=5, le=3600)
+    log_root: Path | None = Path("/data/logs")
+    log_upload_max_mb: int = Field(default=50, ge=1, le=1024)
+    log_analyzer_max_lines: int = Field(default=2_000_000, ge=1000, le=50_000_000)
+    log_analyzer_max_line_bytes: int = Field(default=8192, ge=256, le=1_000_000)
+
     # Reports (Phase 13). Rendering runs in a worker; these bound its cost.
     report_rate_limit_per_minute: int = Field(default=10, ge=1, le=1000)
     max_active_reports_per_user: int = Field(default=3, ge=1, le=100)
@@ -213,6 +225,19 @@ class Settings(LoggingSettings):
     def _valid_ports(cls, value: list[int]) -> list[int]:
         if not value or any(not 1 <= p <= 65535 for p in value):
             raise ValueError("WEB_CHECK_ALLOWED_PORTS must list ports between 1 and 65535")
+        return value
+
+    @field_validator("log_root", mode="before")
+    @classmethod
+    def _empty_log_root_disables(cls, value: object) -> object:
+        # Without this, LOG_ROOT="" would parse as Path("."): the app directory.
+        return None if value == "" else value
+
+    @field_validator("log_root", "upload_dir")
+    @classmethod
+    def _absolute_dirs(cls, value: Path | None) -> Path | None:
+        if value is not None and not value.is_absolute():
+            raise ValueError("LOG_ROOT and UPLOAD_DIR must be absolute paths")
         return value
 
     @field_validator("scope_infra_subnets", "scope_default_allow")

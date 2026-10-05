@@ -48,6 +48,9 @@ export interface ToolDescriptor {
   unavailable_reason?: string | null;
   /** Tool-specific, secret-free status, e.g. `{ providers: [...] }` for threat intel. */
   status?: Record<string, unknown>;
+  /** The tool can run on an uploaded file (ADR 0014). */
+  accepts_upload?: boolean;
+  max_upload_bytes?: number | null;
 }
 
 export interface ProviderStatus {
