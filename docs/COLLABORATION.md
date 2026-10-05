@@ -15,8 +15,9 @@ Each issue is one unit of work: a phase, a chore or a fix.
   it and everything it touches alone, even if it looks stalled. Ask in the issue
   instead.
 - **Unassigned and open** means anyone may take it.
-- **Phases go in the order in `CLAUDE.md`** (ADR 0009). Only the phase at the
-  front is claimable. Chores and fixes can be claimed at any time.
+- **Phases go in the order in `CLAUDE.md`** (ADR 0009). Phases 11 and 9 run in
+  parallel, one per developer, and their ADR and threat-ID numbers are
+  reserved in ADR 0009. Chores and fixes can be claimed at any time.
 - **New work gets an issue first**, even a small one, so the other side sees it
   before files start changing.
 

@@ -40,7 +40,7 @@ Sentinel is an educational and defensive platform. It does not replace professio
 
 ## How we work together
 
-- **One phase at a time.** Follow `docs/spec/05-phases.md` in order, with one approved exception: the remaining phases are built **12 → 13 → 14 → 8 → 10 → 11 → 9** (ADR 0009, approved 2026-10-02). Never implement future phases early; when a deferred phase lands, follow the checklist in ADR 0009.
+- **One phase at a time.** Follow `docs/spec/05-phases.md` in order, with one approved exception: the remaining phases are built **12 → 13 → 14 → 8 → 10 → 11 → 9** (ADR 0009, approved 2026-10-02). Amended 2026-10-05: **11 and 9 are built in parallel**, one per developer, and the optional observability profile follows 11. Reserved ADR and threat-ID numbers are listed in the amendment in ADR 0009. Never implement future phases early; when a deferred phase lands, follow the checklist in ADR 0009.
 - **Plan before code.** At the start of each phase, read the relevant specs, then give me a short plan: files to create or change, new dependencies with justification, design decisions, open questions. Wait for my approval before writing code.
 - **Small, reviewable steps.** Prefer several focused commits over one large one. Use Conventional Commits (`feat:`, `fix:`, `test:`, `chore:`, `docs:`).
 - **Test as you go.** Every phase ends with passing tests (`pytest`, `vitest`), clean lint (`ruff`, `eslint`), type checks (`mypy`, `tsc`), and `bandit` with no high-severity findings.

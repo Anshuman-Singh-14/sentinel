@@ -11,9 +11,9 @@
 | 6 | Scope policy & port scanner | Complete (merged, PR #15) | 498 backend + 319 frontend tests; live lab scan verified; ADR 0007 |
 | 7 | Header & TLS checker | Complete (merged, PR #16) | 570 backend tests; fixture servers + live lab verified; ADR 0008 |
 | 8 | Threat intel | Complete (merged, PR #22) | 820 backend + 338 frontend tests; AbuseIPDB, VirusTotal, Shodan (mocked); playbook intel step live; ADR 0012 |
-| 9 | Network diagnostics | Not started (build 7th) | Stretch. Traceroute best-effort on Docker Desktop |
+| 9 | Network diagnostics | Not started (parallel with 11, #28) | Stretch. Traceroute best-effort on Docker Desktop |
 | 10 | Log analyzer | Complete (merged, PR #26) | 810 unit + 126 integration backend tests, 342 frontend; sample logs → exact detections; ADR 0014 |
-| 11 | File integrity monitor | Not started (build 6th) | Stretch. Demo on a named volume, not a Windows bind mount. Add `beat` to the prod profile |
+| 11 | File integrity monitor | Not started (parallel with 9, #27) | Stretch. Demo on a named volume, not a Windows bind mount. Add `beat` to the prod profile |
 | 12 | Playbook engine | Complete (merged, PR #19) | Built 1st of the remaining phases; 618 backend + 327 frontend tests; ADR 0009 |
 | 13 | Reporting & export | Complete (merged, PR #20) | 691 backend + 335 frontend tests; live playbook PDF verified; ADR 0010 |
 | 14 | Observability & polish | Complete (merged, PR #21) | 768 backend + 335 frontend tests; prod profile; fresh clone → demo in ~2.5 min; ADR 0011. Observability stack deferred (optional) |
@@ -32,6 +32,8 @@ lock. `main` is protected (PR only, CI green, branch up to date). Protocol: `doc
 ## Build order (approved 2026-10-02, ADR 0009)
 
 Remaining phases: **12 → 13 → 14 → 8 → 10 → 11 → 9**. Core demo first, stretch after.
+Amended 2026-10-05: **11 (#27) and 9 (#28) are built in parallel**, one per developer; the
+optional observability profile (#32) follows 11. Reserved numbers are listed in ADR 0009.
 ADR 0009 has the dependency check and the checklist each deferred phase must follow.
 
 ## MVP cut line
