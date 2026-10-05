@@ -391,3 +391,30 @@ export interface ReportPage {
 export function isReportActive(status: ReportStatus): boolean {
   return status === "QUEUED" || status === "RUNNING";
 }
+
+/** A file integrity baseline (Phase 11, ADR 0015). `root` is a root *name*, never a path. */
+export interface FimBaseline {
+  id: string;
+  name: string;
+  root: string;
+  path: string;
+  excludes: string[];
+  file_count: number;
+  dir_count: number;
+  other_count: number;
+  total_bytes: number;
+  created_by: string;
+  created_by_username: string;
+  created_run_id: string | null;
+  created_at: string;
+  schedule_minutes: number | null;
+  last_scheduled_at: string | null;
+  last_checked_at: string | null;
+  last_check_run_id: string | null;
+  last_check_changes: number | null;
+}
+
+export interface FimBaselineList {
+  baselines: FimBaseline[];
+  schedule_choices: number[];
+}

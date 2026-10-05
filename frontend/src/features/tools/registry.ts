@@ -16,8 +16,10 @@
 
 import {
   Binary,
+  FileCheck,
   Fingerprint,
   FileSearch,
+  FolderLock,
   Globe,
   Hash,
   KeyRound,
@@ -29,7 +31,8 @@ import {
   Wrench,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import type { ComponentType } from "react";
+import { lazy } from "react";
+import type { ComponentType, LazyExoticComponent } from "react";
 
 import type { Role, ToolCategory, ToolDescriptor } from "../../types/api";
 import { roleAllows } from "../../types/api";
@@ -83,7 +86,6 @@ export const LOCAL_TOOLS: readonly LocalToolManifest[] = [
   },
 ];
 
-/** Optional presentation hints for backend tools, keyed by `tool_id`. */
 /**
  * Fetch every local tool's chunk in the background once the shell is up, so
  * the tools keep working if the network drops afterwards (Phase 4 acceptance:
@@ -97,7 +99,21 @@ export function prefetchLocalTools(): void {
   }
 }
 
-export const REMOTE_TOOL_META: Record<string, { icon: LucideIcon }> = {
+/**
+ * Optional presentation hints for backend tools, keyed by `tool_id`.
+ *
+ * `panel` adds tool-specific UI under the generated run form (a separate,
+ * lazily loaded chunk), e.g. the FIM baselines list (ADR 0015). Still one
+ * entry here, no route or layout change (CLAUDE.md rule 9).
+ */
+export interface RemoteToolMeta {
+  icon: LucideIcon;
+  panel?: LazyExoticComponent<ComponentType<{ toolId: string }>>;
+}
+
+const FimBaselinesPanel = lazy(() => import("./remote/fim/BaselinesPanel"));
+
+export const REMOTE_TOOL_META: Record<string, RemoteToolMeta> = {
   echo: { icon: Terminal },
   dns_lookup: { icon: Globe },
   port_scanner: { icon: Radar },
@@ -105,7 +121,8 @@ export const REMOTE_TOOL_META: Record<string, { icon: LucideIcon }> = {
   threat_intel: { icon: ScanSearch },
   net_diag: { icon: Network },
   log_analyzer: { icon: FileSearch },
-  fim: { icon: FileSearch },
+  fim_baseline: { icon: FolderLock, panel: FimBaselinesPanel },
+  fim_check: { icon: FileCheck, panel: FimBaselinesPanel },
 };
 
 export const CATEGORY_LABELS: Record<ToolCategory, string> = {
