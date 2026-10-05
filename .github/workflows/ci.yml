@@ -104,6 +104,8 @@ jobs:
               -e "s/^SENTINEL_DB_OWNER_PASSWORD=CHANGE_ME/SENTINEL_DB_OWNER_PASSWORD=$(gen)/" \
               -e "s/^SENTINEL_DB_APP_PASSWORD=CHANGE_ME/SENTINEL_DB_APP_PASSWORD=$(gen)/" \
               -e "s/^REDIS_PASSWORD=CHANGE_ME/REDIS_PASSWORD=$(gen)/" \
+              -e "s/^METRICS_TOKEN=CHANGE_ME/METRICS_TOKEN=$(gen)/" \
+              -e "s/^GRAFANA_ADMIN_PASSWORD=CHANGE_ME/GRAFANA_ADMIN_PASSWORD=$(gen)/" \
               -e "s/^VITE_USE_POLLING=.*/VITE_USE_POLLING=false/" \
               -e "s/^WATCHFILES_FORCE_POLLING=.*/WATCHFILES_FORCE_POLLING=false/" \
               -e "s/^LOG_FORMAT=.*/LOG_FORMAT=json/" \

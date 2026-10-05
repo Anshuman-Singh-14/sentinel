@@ -13,6 +13,7 @@ from collections.abc import Iterable
 from starlette.datastructures import Headers, MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from app.core import metrics
 from app.core.errors import internal_error_body
 from app.core.ids import new_request_id, sanitize_request_id
 from app.core.logging import get_logger
@@ -195,12 +196,14 @@ class RequestContextMiddleware:
         # Log the route *template* (/api/v1/runs/{run_id}), never the raw
         # path or query string: those can carry identifiers or tokens.
         route_path = route_template(scope) or "<unmatched>"
+        elapsed = time.perf_counter() - started
+        metrics.observe_request(scope.get("method"), route_path, status_code, elapsed)
         log = logger.debug if route_path in QUIET_ROUTES and status_code < 400 else logger.info
         log(
             "http.request",
             method=scope.get("method"),
             route=route_path,
             status=status_code,
-            duration_ms=round((time.perf_counter() - started) * 1000, 2),
+            duration_ms=round(elapsed * 1000, 2),
             client_ip=client_ip,
         )

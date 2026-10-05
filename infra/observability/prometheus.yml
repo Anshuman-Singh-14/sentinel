@@ -1,0 +1,20 @@
+# Prometheus for the optional observability profile (ADR 0016).
+# The bearer token is written to /tmp/metrics_token (tmpfs, mode 0600) by the
+# container's start command from $METRICS_TOKEN, so it never appears here or
+# in the process list.
+global:
+  scrape_interval: 15s
+  scrape_timeout: 10s
+
+scrape_configs:
+  - job_name: sentinel-api
+    metrics_path: /metrics
+    authorization:
+      type: Bearer
+      credentials_file: /tmp/metrics_token
+    static_configs:
+      - targets: ["api:8000"]
+
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]

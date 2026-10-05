@@ -134,6 +134,11 @@ Host ports bind to `127.0.0.1` only. The production profile is described in ADR 
 | T82 | D/E | Scheduled checks used to flood workers or to act as a disabled user | Fixed schedule choices (15 min to daily); due baselines claimed with a compare-and-set (no double start); at most 50 per tick and beat messages expire after 55 s; a disabled or demoted creator's schedule is cleared instead of running in their name | Done (P11) |
 | T83 | I | Server paths disclosed through FIM | Users choose roots by name; schemas, results and the API carry `root:/relative` only; the absolute mount path stays in worker settings | Done (P11) |
 | T84 | E | The lab-fim demo container as a foothold | Lab profile only; no network (`network_mode: none`), all capabilities dropped, no-new-privileges, read-only root filesystem; root only inside the container to own the demo files | Done (P11) |
+| T85 | I | `/metrics` leaking operational data or identifiers | Off (404) without `METRICS_TOKEN`; bearer token (32+ chars) compared in constant time; not proxied by production nginx; labels are route templates, tool ids and statuses only, never paths, users or targets. Tests cover 404, wrong scheme, wrong token and that identifiers never become labels | Done (ADR 0016) |
+| T86 | E | Log shipper as a path to host root | No Docker socket; Docker's log directory mounted read-only; Alloy has all capabilities dropped, a read-only root filesystem and only the internal `obs` network | Done (ADR 0016) |
+| T87 | I/S | Grafana exposed with default credentials or reachable beyond the host | Refuses to start without `GRAFANA_ADMIN_PASSWORD`; sign-up and anonymous access off; published on 127.0.0.1 only; strict SameSite cookies; no update checks, usage reporting or plugin downloads | Done (ADR 0016) |
+| T88 | D/I | Observability services reaching data stores, or being reached by active tools | Separate internal `obs` network (Prometheus also joins `edge` only to scrape the API); none joins `internal`; the `obs` and `obs_ui` subnets are on the scope denylist | Done (ADR 0016) |
+| T89 | D | Metrics scrapes or log volume overloading the stack | Business metrics are a few small aggregates under the DB statement timeout; Loki ingestion rate limits; 7-day retention for metrics and logs | Done (ADR 0016) |
 
 ## 5. Accepted risks and environment notes
 

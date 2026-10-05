@@ -72,6 +72,7 @@ docker compose exec frontend npm run test       # frontend tests
 docker compose exec frontend npm ci             # after a frontend dependency change (refreshes the node_modules volume)
 docker compose exec frontend npm run lint
 LOG_FORMAT=json docker compose up -d            # JSON logs locally (default in dev: console)
+LOG_FORMAT=json docker compose --profile observability up -d   # Prometheus, Loki, Alloy, Grafana on :3000 (ADR 0016)
 sh scripts/init-env.sh                          # fresh clone: create .env with random secrets (or scripts\init-env.ps1)
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build -d --wait   # production profile (http://localhost:8080)
 docker compose exec -T api python - < scripts/self_header_check.py   # own header checker vs prod front end (prod profile)
