@@ -69,6 +69,9 @@ ROUTES: dict[tuple[str, str], str | Role] = {
     ("GET", "/api/v1/reports"): Role.VIEWER,
     ("GET", "/api/v1/reports/{report_id}"): Role.VIEWER,
     ("GET", "/api/v1/reports/{report_id}/download"): Role.VIEWER,
+    ("GET", "/api/v1/fim/baselines"): Role.VIEWER,
+    ("PATCH", "/api/v1/fim/baselines/{baseline_id}"): Role.ANALYST,
+    ("DELETE", "/api/v1/fim/baselines/{baseline_id}"): Role.ANALYST,
 }
 
 PROTECTED = sorted(k for k, v in ROUTES.items() if v != PUBLIC)

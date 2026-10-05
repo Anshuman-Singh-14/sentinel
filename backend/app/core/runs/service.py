@@ -89,6 +89,7 @@ class RunService:
         playbook_run_id: uuid.UUID | None = None,
         run_id: uuid.UUID | None = None,
         upload: dict[str, Any] | None = None,
+        scheduled: bool = False,
     ) -> ToolRun:
         """Validate, authorise, persist and (unless part of a playbook) dispatch a run.
 
@@ -102,6 +103,10 @@ class RunService:
         file is stored under the run id *before* the run exists, so the
         worker can never start before its file is in place. ``upload`` (name
         and size, never contents) is added to the audit details.
+
+        ``scheduled`` marks a run started by a FIM schedule (ADR 0015) on behalf
+        of the baseline's creator: per-user rate quotas are skipped (the
+        schedule is the rate) and the audit details say ``trigger: schedule``.
         """
         tool = tool_cls()
         if not role_allows(principal.role, tool.required_role):
@@ -152,7 +157,7 @@ class RunService:
                 )
                 raise ScopeDenied(decision.reason, details={"reason": decision.code})
 
-        if playbook_run_id is None:
+        if playbook_run_id is None and not scheduled:
             await self._enforce_quotas(principal)
 
         run = ToolRun(
@@ -182,6 +187,7 @@ class RunService:
                 "tool_version": tool.version,
                 **({"playbook_run_id": str(playbook_run_id)} if playbook_run_id else {}),
                 **({"upload": upload} if upload else {}),
+                **({"trigger": "schedule"} if scheduled else {}),
             },
             session=self.db,
         )
