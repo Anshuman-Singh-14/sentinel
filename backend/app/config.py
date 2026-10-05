@@ -14,6 +14,7 @@ it needs:
 """
 
 import ipaddress
+import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Literal, Self
@@ -25,6 +26,10 @@ from sqlalchemy.engine import make_url
 Environment = Literal["development", "test", "production"]
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR"]
 LogFormat = Literal["json", "console"]
+
+
+FIM_ROOT_NAME_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
+FIM_MAX_ROOTS = 10
 
 
 def _split_csv(value: object) -> object:
@@ -205,6 +210,17 @@ class Settings(LoggingSettings):
     log_analyzer_max_lines: int = Field(default=2_000_000, ge=1000, le=50_000_000)
     log_analyzer_max_line_bytes: int = Field(default=8192, ge=256, le=1_000_000)
 
+    # File integrity monitor (Phase 11, ADR 0015). Named roots, `name=/abs/path`
+    # comma-separated: users pick a root by name, so server paths never reach
+    # the browser. Only the worker mounts them (read-only); the API needs the
+    # names to validate parameters. Empty disables both FIM tools.
+    fim_roots: Annotated[dict[str, Path], NoDecode] = Field(
+        default_factory=lambda: {"demo": Path("/data/fim/demo")}
+    )
+    fim_max_files: int = Field(default=20_000, ge=10, le=200_000)
+    fim_max_file_mb: int = Field(default=100, ge=1, le=10_240)
+    fim_max_total_mb: int = Field(default=2048, ge=1, le=102_400)
+
     # Reports (Phase 13). Rendering runs in a worker; these bound its cost.
     report_rate_limit_per_minute: int = Field(default=10, ge=1, le=1000)
     max_active_reports_per_user: int = Field(default=3, ge=1, le=100)
@@ -238,6 +254,35 @@ class Settings(LoggingSettings):
     def _absolute_dirs(cls, value: Path | None) -> Path | None:
         if value is not None and not value.is_absolute():
             raise ValueError("LOG_ROOT and UPLOAD_DIR must be absolute paths")
+        return value
+
+    @field_validator("fim_roots", mode="before")
+    @classmethod
+    def _parse_fim_roots(cls, value: object) -> object:
+        if not isinstance(value, str):
+            return value
+        roots: dict[str, str] = {}
+        for item in (part.strip() for part in value.split(",")):
+            if not item:
+                continue
+            name, sep, path = item.partition("=")
+            if not sep:
+                raise ValueError("FIM_ROOTS entries must look like name=/absolute/path")
+            if name.strip() in roots:
+                raise ValueError(f"FIM_ROOTS names a root twice: {name.strip()!r}")
+            roots[name.strip()] = path.strip()
+        return roots
+
+    @field_validator("fim_roots")
+    @classmethod
+    def _valid_fim_roots(cls, value: dict[str, Path]) -> dict[str, Path]:
+        if len(value) > FIM_MAX_ROOTS:
+            raise ValueError(f"FIM_ROOTS may name at most {FIM_MAX_ROOTS} roots")
+        for name, path in value.items():
+            if not FIM_ROOT_NAME_RE.fullmatch(name):
+                raise ValueError(f"FIM root name {name!r} must match {FIM_ROOT_NAME_RE.pattern}")
+            if not path.is_absolute():
+                raise ValueError(f"FIM root {name!r} must be an absolute path")
         return value
 
     @field_validator("scope_infra_subnets", "scope_default_allow")

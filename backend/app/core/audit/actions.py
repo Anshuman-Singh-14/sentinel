@@ -50,6 +50,8 @@ class AuditAction(StrEnum):
     FIM_BASELINE_CREATED = "fim.baseline.created"
     FIM_BASELINE_DELETED = "fim.baseline.deleted"
     FIM_CHECK_COMPLETED = "fim.check.completed"
+    # Not in the original taxonomy: schedule changes on a baseline (ADR 0015).
+    FIM_BASELINE_UPDATED = "fim.baseline.updated"
     LOG_ANALYSIS_REQUESTED = "log.analysis.requested"
 
     # Reports (Phase 13)
