@@ -56,6 +56,15 @@ services:
     volumes: !override
       - uploads:/data/uploads
       - ${LOG_ROOT_HOST:-./backend/tests/fixtures/logs}:/data/logs:ro
+      - fim_demo:/data/fim/demo:ro
+
+  # Celery beat for scheduled FIM checks (ADR 0009 checklist, ADR 0015).
+  beat:
+    <<: *prod-backend
+    environment:
+      ENVIRONMENT: production
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      CORS_ORIGINS: ${PROD_ORIGIN:-http://localhost:8080}
 
   frontend:
     build:

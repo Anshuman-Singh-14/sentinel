@@ -10,6 +10,7 @@ are set explicitly instead of relying on defaults:
   rather than lost, and one worker cannot hoard queued long-running scans.
 """
 
+import sys
 from typing import Any
 
 from celery import Celery
@@ -31,6 +32,7 @@ celery_app = Celery(
         "app.core.tasks.tool_task",
         "app.core.tasks.playbook_task",
         "app.core.tasks.report_task",
+        "app.core.tasks.fim_task",
     ],
 )
 celery_app.conf.update(
@@ -53,13 +55,26 @@ celery_app.conf.update(
     worker_hijack_root_logger=False,
     timezone="UTC",
     enable_utc=True,
+    # Celery beat (the `beat` service) only publishes this message; a worker
+    # runs it. Each due baseline becomes a normal fim_check run (ADR 0015).
+    # It expires after 55 s so a backlog of ticks (beat ran while every worker
+    # was down) collapses instead of starting a burst of checks.
+    beat_schedule={
+        "fim-scheduled-checks": {
+            "task": "sentinel.fim.dispatch_scheduled",
+            "schedule": 60.0,
+            "options": {"queue": DEFAULT_QUEUE, "expires": 55},
+        }
+    },
 )
 
 
 @setup_logging.connect
 def _configure_worker_logging(**_: Any) -> None:
     # Connecting to this signal stops Celery from installing its own logging.
-    configure_logging(get_settings(), service="worker")
+    # The beat scheduler shares this module; label its logs as its own service.
+    service = "beat" if "beat" in sys.argv[1:] else "worker"
+    configure_logging(get_settings(), service=service)
 
 
 @celery_app.task(name="sentinel.ping")

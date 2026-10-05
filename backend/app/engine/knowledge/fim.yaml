@@ -1,0 +1,199 @@
+# Knowledge entries for the File Integrity Monitor tools (Phase 11, ADR 0015).
+#
+# Severity criteria (applied in app/tools/fim/compare.py, quoted in every
+# finding's rationale):
+#   Path sensitivity: the first matching pattern in app/tools/fim/sensitivity.yaml
+#     sets the level (CRITICAL credentials and privilege config, HIGH system
+#     configuration and executables, MEDIUM scripts and web content); no match is LOW.
+#   MODIFIED, ADDED, REMOVED: the path's level. Unexpected change to a sensitive
+#     file is the core FIM signal (NIST SP 800-53 SI-7, CIS Control 3.14).
+#   METADATA_CHANGED (mode or owner only): one level below the path's level,
+#     minimum LOW, because permission changes alone are more often benign.
+#   Escalations (the higher level wins):
+#     becomes world-writable: HIGH (CWE-732, anyone on the host can alter it);
+#     gains setuid/setgid or is added with it: CRITICAL (MITRE ATT&CK T1548.001);
+#     regular file replaced by a symbolic link: HIGH (redirects whoever reads it).
+# Change findings use the severity computed by compare.py; the `severity` value
+# below is only the nominal level of each entry.
+schema_version: 1
+namespace: fim
+version: "1.0.0"
+entries:
+  fim.baseline_created:
+    title: "Baseline '$name' created: $files file(s), $dirs folder(s) in $location"
+    explanation: >-
+      Sentinel recorded the SHA-256 hash, size, modification time, permissions and owner
+      of $entries item(s) under $location ($hashed_mb MB hashed). Later integrity
+      checks compare the directory against this snapshot and report every file that was
+      modified, added, removed or had its permissions or owner changed.
+    remediation: >-
+      Create baselines from a known-good state (right after installing or deploying), and
+      re-baseline after every intended change so that only unexpected changes are reported.
+      Schedule regular checks for important directories.
+    severity: INFO
+    severity_rationale: Informational record of the new baseline.
+    references: ["NIST SP 800-53 SI-7 (Software, Firmware, and Information Integrity)", "CIS Control 3.14"]
+
+  fim.not_hashed:
+    title: "$count item(s) recorded without a content hash"
+    explanation: >-
+      Some files could not be hashed: $reasons. Their size, modification time,
+      permissions and owner are still recorded and compared, but a content change that
+      keeps the size and timestamp would go unnoticed for them.
+    remediation: >-
+      For unreadable files, check whether the monitor should be allowed to read them. For
+      large files, raise FIM_MAX_FILE_MB or exclude them if they change by design (logs,
+      databases). Examples: $examples.
+    severity: INFO
+    severity_rationale: A coverage note about the baseline, not a security issue.
+    references: []
+
+  fim.world_writable_present:
+    title: "$count world-writable item(s) already present"
+    explanation: >-
+      These paths can be modified by every account on the host: $examples. Any local user
+      or compromised service could change them, which undermines the integrity this
+      baseline is meant to protect.
+    remediation: >-
+      Remove write access for "others" (chmod o-w <path>) unless the path is a shared
+      directory that needs it, in which case set the sticky bit (chmod +t) as /tmp does.
+    severity: MEDIUM
+    severity_rationale: >-
+      World-writable files and directories in a monitored tree are an incorrect permission
+      assignment (CWE-732): MEDIUM because exploitation needs local access.
+    references: ["CWE-732", "CIS Benchmarks: ensure no world-writable files exist"]
+
+  fim.setuid_present:
+    title: "$count setuid/setgid file(s) in the baseline"
+    explanation: >-
+      These files run with their owner's or group's privileges whoever starts them:
+      $examples. A few system programs need this (passwd, sudo); any other setuid file is
+      a privilege-escalation risk.
+    remediation: >-
+      Confirm each one is expected. Remove the bit from anything that does not need it
+      (chmod u-s,g-s <file>). Integrity checks will rate any new setuid file CRITICAL.
+    severity: LOW
+    severity_rationale: >-
+      Recorded for review: setuid files are legitimate in small numbers, but each is an
+      escalation path if abused (MITRE ATT&CK T1548.001).
+    references: ["MITRE ATT&CK T1548.001 (Setuid and Setgid)"]
+
+  fim.external_symlinks:
+    title: "$count symbolic link(s) point outside the monitored directory"
+    explanation: >-
+      FIM records where these links point but never follows them, so files outside the
+      root are never read: $examples. A change of link target is reported as a
+      modification.
+    remediation: >-
+      No action needed if the links are expected. To monitor their targets, add the target
+      directory as its own FIM root.
+    severity: INFO
+    severity_rationale: Informational. Links are recorded, not followed (ADR 0015).
+    references: []
+
+  fim.check_summary:
+    title: "Compared $current item(s) with baseline '$name': $total change(s)"
+    explanation: >-
+      Baseline '$name' ($location, created $created_at by $created_by) listed $baseline
+      item(s). This check found $modified modified, $added added, $removed removed and
+      $metadata permission/owner change(s); $unchanged unchanged$touched_text.
+    remediation: >-
+      Review the changes, most severe first. If every change was intended (a deployment,
+      an update), create a new baseline so future checks start from the new state.
+    severity: INFO
+    severity_rationale: Informational summary of the check.
+    references: ["NIST SP 800-53 SI-7"]
+
+  fim.no_changes:
+    title: "No changes since baseline '$name'"
+    explanation: >-
+      Every file in $location matches the baseline: same content hash, permissions and
+      owner, and nothing was added or removed.
+    remediation: No action needed. Keep checking on a schedule.
+    severity: INFO
+    severity_rationale: Nothing changed, so there is nothing to rate.
+    references: []
+
+  fim.partial:
+    title: "Check stopped at the $limit-entry limit"
+    explanation: >-
+      The directory now holds more entries than FIM_MAX_FILES allows, so the walk stopped
+      early. Changes to the entries that were reached are reported, but removals are not:
+      an entry that was not reached is not proof that it is gone. The directory growing
+      this much may itself be worth a look.
+    remediation: >-
+      Find out why the directory grew, then re-baseline a narrower path, add exclude
+      patterns or raise FIM_MAX_FILES.
+    severity: INFO
+    severity_rationale: A coverage note about this check, not a security issue.
+    references: []
+
+  fim.modified:
+    title: "Modified: $path"
+    explanation: >-
+      $what since the baseline. This path holds $reason.$escalation_text Unexpected
+      changes here can mean tampering, a backdoor or an unauthorised configuration change.
+      $confidence_text
+    remediation: |-
+      - Find out who changed it and why: deployment records, package updates, the audit log, `last` and shell history.
+      - Compare with a known-good copy (package manager: rpm -V / debsums; configuration management; backups).
+      - If the change was not intended, restore the file and investigate the host for compromise.
+      - If it was intended, create a new baseline.
+    severity: MEDIUM
+    severity_rationale: $rationale
+    references: ["NIST SP 800-53 SI-7", "MITRE ATT&CK T1565.001 (Stored Data Manipulation)"]
+
+  fim.added:
+    title: "Added: $path"
+    explanation: >-
+      A new $kind appeared since the baseline. This location holds $reason.$escalation_text
+      New files in sensitive places are how backdoors, web shells and persistence
+      mechanisms usually arrive.
+    remediation: |-
+      - Identify the file's origin: owner, creation time, package ownership (dpkg -S / rpm -qf).
+      - Inspect it before running anything: file type, strings, hash lookup (e.g. with the Threat Intel tool).
+      - Remove it if it is not expected, and look for how it got there.
+      - If it is expected, create a new baseline.
+    severity: MEDIUM
+    severity_rationale: $rationale
+    references: ["NIST SP 800-53 SI-7", "MITRE ATT&CK T1505.003 (Web Shell)"]
+
+  fim.removed:
+    title: "Removed: $path"
+    explanation: >-
+      This $kind existed in the baseline and is gone. The location holds $reason.
+      Deleting configuration or logs can disable a security control or hide an attacker's
+      tracks.
+    remediation: |-
+      - Confirm whether the removal was part of a planned change.
+      - If not, restore the file from backup or the package manager and find out who removed it.
+      - If it was planned, create a new baseline.
+    severity: MEDIUM
+    severity_rationale: $rationale
+    references: ["NIST SP 800-53 SI-7", "MITRE ATT&CK T1070.004 (File Deletion)"]
+
+  fim.metadata_changed:
+    title: "Permissions/owner changed: $path"
+    explanation: >-
+      $what, but the content is unchanged. This path holds $reason.$escalation_text
+      Loosened permissions or a new owner can let other accounts modify or read the file.
+    remediation: |-
+      - Check whether the new permissions are intended (ls -l, stat).
+      - Restore the expected mode and owner with chmod / chown if not.
+      - If intended, create a new baseline.
+    severity: LOW
+    severity_rationale: $rationale
+    references: ["NIST SP 800-53 SI-7", "CWE-732"]
+
+  fim.more_changes:
+    title: "$count further change(s) not listed individually"
+    explanation: >-
+      To keep the report readable, only the $shown most severe changes are listed. The
+      remaining $count are counted in the summary ($by_type). Their highest severity was
+      $highest.
+    remediation: >-
+      Re-baseline a narrower directory or add exclude patterns for paths that change by
+      design, so real changes are not buried.
+    severity: INFO
+    severity_rationale: Grouping note; each underlying change has its own severity.
+    references: []

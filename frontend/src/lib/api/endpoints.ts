@@ -3,6 +3,8 @@
 import type {
   Acknowledgement,
   AuditPage,
+  FimBaseline,
+  FimBaselineList,
   RunDetail,
   RunPage,
   RunStatus,
@@ -168,4 +170,14 @@ export const reportsApi = {
       signal,
     }),
   download: (id: string) => download(`${V1}/reports/${encodeURIComponent(id)}/download`),
+};
+
+/** File integrity baselines (ADR 0015). Created and checked through tool runs. */
+export const fimApi = {
+  list: (signal?: AbortSignal) => api.get<FimBaselineList>(`${V1}/fim/baselines`, { signal }),
+  setSchedule: (id: string, scheduleMinutes: number | null) =>
+    api.patch<FimBaseline>(`${V1}/fim/baselines/${encodeURIComponent(id)}`, {
+      schedule_minutes: scheduleMinutes,
+    }),
+  remove: (id: string) => api.delete<void>(`${V1}/fim/baselines/${encodeURIComponent(id)}`),
 };

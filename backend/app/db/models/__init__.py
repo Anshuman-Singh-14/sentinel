@@ -2,6 +2,7 @@
 
 from app.db.models.alert import SecurityAlert
 from app.db.models.audit import AuditEvent
+from app.db.models.fim import FimBaseline, FimBaselineEntry
 from app.db.models.playbook import PlaybookRun, PlaybookStep
 from app.db.models.report import Report, ReportBlob
 from app.db.models.run import FindingRow, ToolRun
@@ -11,6 +12,8 @@ from app.db.models.user import User, UserSession
 __all__ = [
     "AuditEvent",
     "AuthorizationAcknowledgement",
+    "FimBaseline",
+    "FimBaselineEntry",
     "FindingRow",
     "PlaybookRun",
     "PlaybookStep",

@@ -13,7 +13,7 @@
 | 8 | Threat intel | Complete (merged, PR #22) | 820 backend + 338 frontend tests; AbuseIPDB, VirusTotal, Shodan (mocked); playbook intel step live; ADR 0012 |
 | 9 | Network diagnostics | Not started (build 7th) | Stretch. Traceroute best-effort on Docker Desktop |
 | 10 | Log analyzer | Complete (PR pending) | 810 unit + 126 integration backend tests, 342 frontend; sample logs → exact detections; ADR 0014 |
-| 11 | File integrity monitor | Not started (build 6th) | Stretch. Demo on a named volume, not a Windows bind mount. Add `beat` to the prod profile |
+| 11 | File integrity monitor | Complete (PR pending, #27) | 881 unit + 132 integration backend tests, 351 frontend; tamper demo → 6 exact changes; scheduled check live; ADR 0015 |
 | 12 | Playbook engine | Complete (merged, PR #19) | Built 1st of the remaining phases; 618 backend + 327 frontend tests; ADR 0009 |
 | 13 | Reporting & export | Complete (merged, PR #20) | 691 backend + 335 frontend tests; live playbook PDF verified; ADR 0010 |
 | 14 | Observability & polish | Complete (merged, PR #21) | 768 backend + 335 frontend tests; prod profile; fresh clone → demo in ~2.5 min; ADR 0011. Observability stack deferred (optional) |
@@ -21,6 +21,7 @@
 ## Releases
 
 - **v1.0.0** (2026-10-04): capstone core (Phases 0–8, 12–14). See `CHANGELOG.md`.
+- **Unreleased** (2026-10-05): Phase 11 file integrity monitor (ADR 0015).
 - **Unreleased** (2026-10-04): one-file launcher `python run.py` (chore, not a phase; ADR 0013);
   Phase 10 log analyzer (ADR 0014).
 
@@ -73,6 +74,50 @@ containers. See `docs/adr/0001-architecture-and-stack.md`.
 - Dev DB has leftover smoke-test admins (`p3smoke`, `p5smoke`, `e2ereports`). Disable them
   from another admin account before any shared demo (the load-test analysts and `analyst1`,
   used for the README screenshots, are already disabled).
+
+## Phase 11 log (2026-10-05, branch `feat/phase-11-fim`, issue #27)
+
+- **Order:** built in parallel with Phase 9 (ADR 0009 amendment). ADR 0009 checklist:
+  - `beat` added to the dev and production profiles.
+  - The Phase 13 exporters render FIM findings: the integration test exports
+    PDF and CSV from a check run.
+  - README tool list, demo table and diagram updated. Screenshots: issue #29.
+  - Demo on the `fim_demo` named volume, not a Windows bind mount.
+- **Design (ADR 0015):**
+  - Two tools in one package (`fim_baseline`, `fim_check`), so baselines and
+    checks reuse the run framework: progress, cancellation, limits, audit,
+    history and export.
+  - State goes through a `BaselineStore` protocol. Its SQL implementation is
+    in `app/fim/store.py`, with an in-memory fake in unit tests, as with the
+    `Cache` protocol of Phase 8.
+  - Baselines are attributed from the run row, never from parameters.
+  - Soft delete: the app role has no DELETE on `fim_baselines`.
+- **Framework additions (generic):**
+  - `RunService.create(scheduled=True)` skips per-user quotas and audits
+    `trigger: schedule`.
+  - `REMOTE_TOOL_META[...].panel` adds tool-specific UI under the generated
+    form.
+- **Acceptance (05-phases.md):**
+  - [x] Tests detect modified, added, removed and permission-changed files
+    (unit and integration, plus a live tamper demo with 6 exact changes).
+  - [x] Symlink escape blocked:
+    - links are recorded, not followed or descended;
+    - a file swapped for a symlink is refused by `O_NOFOLLOW` and the inode
+      check;
+    - symlinked path components are refused;
+    - a FIFO cannot hang the walk.
+  - [x] Optional beat schedule. Verified live: a due baseline produced a
+    check run attributed to its creator with `trigger: schedule`.
+- **Gates:**
+  - backend: 881 unit tests, 132 integration tests, ruff, mypy and bandit
+    clean;
+  - frontend: 351 vitest tests, eslint, tsc and prettier clean.
+- **Known limitations:**
+  - Unreadable files (e.g. `etc/shadow` in the demo, mode 0640) are compared
+    by metadata only.
+  - Real host paths need a read-only bind mount plus a `FIM_ROOTS` entry, and
+    a Linux host for meaningful modes and owners.
+  - Smoke users `p11smoke` and `p11smoke2` were disabled after the live check.
 
 ## Phase 10 log (2026-10-04, branch `feat/phase-10-log-analyzer`)
 

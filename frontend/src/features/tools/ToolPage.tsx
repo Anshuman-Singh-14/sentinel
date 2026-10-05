@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useId, useState } from "react";
+import { Suspense, useId, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 
 import { NotFoundPage } from "../../app/NotFoundPage";
@@ -11,7 +11,7 @@ import { roleAllows } from "../../types/api";
 import { useUser } from "../auth/guards";
 import { ACK_QUERY_KEY, AuthorizationGate, ScopeSummary } from "../scope/AuthorizationGate";
 import { runQueryKey } from "../runs/useRunStatus";
-import { CATEGORY_LABELS } from "./registry";
+import { CATEGORY_LABELS, REMOTE_TOOL_META } from "./registry";
 import { SchemaForm } from "./SchemaForm";
 import type { ObjectSchema } from "./SchemaForm";
 import { useToolCatalogue } from "./useToolCatalogue";
@@ -157,6 +157,8 @@ export function ToolPage() {
   const canRun = roleAllows(user.role, tool.required_role);
   const configured = tool.available !== false;
   const providers = providerStatus(tool);
+  // Optional tool-specific UI from the registry (a lazily loaded chunk).
+  const Panel = REMOTE_TOOL_META[tool.tool_id]?.panel;
 
   return (
     <div className="flex max-w-4xl flex-col gap-6">
@@ -209,6 +211,12 @@ export function ToolPage() {
           </p>
         )}
       </Card>
+
+      {Panel && configured && (
+        <Suspense fallback={<Spinner label="Loading" />}>
+          <Panel toolId={tool.tool_id} />
+        </Suspense>
+      )}
 
       <Card title="Contract">
         <Tabs

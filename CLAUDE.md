@@ -58,7 +58,9 @@ python run.py                                   # one-file launcher: .env, build
 python run.py --prod | --no-lab | --logs | --stop | --reset   # variants (ADR 0013)
 python -m unittest discover -s tests/launcher   # launcher tests (host, stdlib only)
 docker compose up --build                       # full stack (runs migrations first)
-docker compose --profile lab up -d              # also start the scan-lab targets (lab-web, lab-banners, lab-redis)
+docker compose --profile lab up -d              # also start the scan-lab targets (lab-web, lab-banners, lab-redis, lab-fim)
+docker compose exec lab-fim sh /opt/fim/tamper.sh          # FIM demo: change files in the demo root (ADR 0015)
+docker compose exec lab-fim sh /opt/fim/seed.sh --reset    # FIM demo: restore the original files
 docker compose run --rm api pytest              # backend unit tests (integration tests skip)
 docker compose --profile test run --rm test     # unit + integration tests against sentinel_test DB
 docker compose exec api python -m app.cli create-admin --username admin   # first admin

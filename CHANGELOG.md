@@ -7,6 +7,26 @@ All notable changes to Sentinel. The format follows
 ## [Unreleased]
 
 ### Added
+- **File Integrity Monitor (Phase 11, ADR 0015):**
+  - Two tools: *FIM: Create Baseline* records SHA-256, size, mtime, mode and
+    owner for every entry under a named root (`FIM_ROOTS`, mounted read-only
+    into the worker); *File Integrity Check* reports modified, added, removed
+    and permission/owner-changed files.
+  - Severity from path-sensitivity patterns (`sensitivity.yaml`), with
+    escalations for new setuid/setgid bits (CRITICAL), world-writable files
+    and files replaced by symlinks (HIGH). Every rationale names the rule.
+  - Symlinks are recorded, never followed; files open with `O_NOFOLLOW` and
+    `O_NONBLOCK` and are checked by inode. Entry count, file size, total
+    bytes and depth are capped, and cancellation reaches the scanning thread.
+  - Baselines panel on both tool pages (Check now, schedule, delete), and
+    `GET/PATCH/DELETE /api/v1/fim/baselines` (creator or admin may change).
+  - Scheduled checks: a new `beat` service (dev and prod) and a minute tick
+    that claims due baselines with a compare-and-set.
+  - Demo: the `lab-fim` service seeds a fake filesystem on the `fim_demo`
+    named volume; `tamper.sh` makes six reportable changes.
+  - Migration 0007 (`fim_baselines`, `fim_baseline_entries`); audit events
+    `fim.baseline.created`, `fim.baseline.updated`, `fim.baseline.deleted`,
+    `fim.check.completed`.
 - **Log File Analyzer (Phase 10, ADR 0014):**
   - Analyses SSH `auth.log` (OpenSSH, classic or RFC 3339 syslog) and
     nginx/Apache combined access logs, with format auto-detection and gzip
