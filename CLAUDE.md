@@ -40,7 +40,7 @@ Sentinel is an educational and defensive platform. It does not replace professio
 
 ## How we work together
 
-- **One phase at a time.** Follow `docs/spec/05-phases.md` in order, with one approved exception: the remaining phases are built **12 → 13 → 14 → 8 → 10 → 11 → 9** (ADR 0009, approved 2026-10-02). Never implement future phases early; when a deferred phase lands, follow the checklist in ADR 0009.
+- **One phase at a time.** Follow `docs/spec/05-phases.md` in order, with one approved exception: the remaining phases are built **12 → 13 → 14 → 8 → 10 → 11 → 9** (ADR 0009, approved 2026-10-02). Amended 2026-10-05: **11 and 9 are built in parallel**, one per developer, and the optional observability profile follows 11. Reserved ADR and threat-ID numbers are listed in the amendment in ADR 0009. Never implement future phases early; when a deferred phase lands, follow the checklist in ADR 0009.
 - **Plan before code.** At the start of each phase, read the relevant specs, then give me a short plan: files to create or change, new dependencies with justification, design decisions, open questions. Wait for my approval before writing code.
 - **Small, reviewable steps.** Prefer several focused commits over one large one. Use Conventional Commits (`feat:`, `fix:`, `test:`, `chore:`, `docs:`).
 - **Test as you go.** Every phase ends with passing tests (`pytest`, `vitest`), clean lint (`ruff`, `eslint`), type checks (`mypy`, `tsc`), and `bandit` with no high-severity findings.
@@ -48,6 +48,17 @@ Sentinel is an educational and defensive platform. It does not replace professio
 - **Ask, don't guess,** when a requirement is ambiguous or conflicts with a security rule. Flag security concerns explicitly, even ones I didn't ask about.
 - **Minimal dependencies.** Justify every new package. Pin versions.
 - **Explain as you build.** This is a capstone project: add concise docstrings and comments explaining *why*, especially for security decisions, so I can defend the design.
+
+---
+
+## Two developers, two Claude sessions
+
+Two people build Sentinel in parallel, each with their own Claude Code. Follow `docs/COLLABORATION.md`. In short:
+
+- **Before any work:** run `git fetch --prune`, `gh issue list` and `gh pr list`. Never start work that has no issue, or whose issue someone else is assigned to.
+- **Claim first:** assign the issue to yourself and branch from a fresh `main`. Open a draft PR (`Closes #N`) with your first push.
+- **Shared files** (`CHANGELOG.md`, `docs/PROGRESS.md`, migrations, lockfiles, numbered ADR and threat IDs) follow the rules in the table in `docs/COLLABORATION.md`.
+- **Rebase often.** `main` is protected: merge only through a PR, with CI green and the branch up to date.
 
 ---
 

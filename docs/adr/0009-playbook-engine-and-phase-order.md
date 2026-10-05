@@ -15,6 +15,20 @@ in this order:
 
 The spec order is 8 → 9 → 10 → 11 → 12 → 13 → 14.
 
+**Amendment (2026-10-05, approved by the project owner):** a second developer
+joined. With 12, 13, 14, 8 and 10 merged, **Phases 11 and 9 are built in
+parallel**, one per developer. They are separate tool modules with no
+dependency on each other. The optional observability profile (the deferred
+part of Phase 14, ADR 0011) follows Phase 11 on the same developer's side.
+Collisions on shared files are handled by `docs/COLLABORATION.md`. Reserved
+numbers:
+
+| Work | Issue | ADR | Threat IDs |
+|---|---|---|---|
+| Phase 11 (FIM) | #27 | 0015 | T78–T84 |
+| Observability profile | #32 | 0016 | T85–T89 |
+| Phase 9 (network diagnostics) | #28 | 0017 | T90–T99 |
+
 ### Why
 
 The capstone review is at the end of November. The MVP cut line in

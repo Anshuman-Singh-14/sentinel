@@ -7,6 +7,9 @@ All notable changes to Sentinel. The format follows
 ## [Unreleased]
 
 ### Added
+- **Parallel-work protocol** (`docs/COLLABORATION.md`): GitHub Issues as the
+  shared to-do list, rules for shared files and numbered IDs, and branch
+  protection on `main`.
 - **Log File Analyzer (Phase 10, ADR 0014):**
   - Analyses SSH `auth.log` (OpenSSH, classic or RFC 3339 syslog) and
     nginx/Apache combined access logs, with format auto-detection and gzip
