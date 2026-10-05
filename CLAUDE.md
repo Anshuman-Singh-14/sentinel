@@ -25,7 +25,7 @@ Sentinel is an educational and defensive platform. It does not replace professio
 
 ## Non-negotiable rules
 
-1. **Zero shell execution.** Never use `subprocess`, `os.system`, `os.popen`, `shell=True`, `eval`, `exec`, or `pickle` on untrusted data. Use `socket`, `asyncio`, `dnspython`, `icmplib`, `httpx`, `ssl`.
+1. **Zero shell execution.** Never use `subprocess`, `os.system`, `os.popen`, `shell=True`, `eval`, `exec`, or `pickle` on untrusted data. Use `socket`, `asyncio`, `dnspython`, `icmplib`, `httpx`, `ssl`. *Sole exception:* the host-side launcher `run.py` may call the Docker CLI through `subprocess.run` with argument lists and `shell=False`, under the constraints in ADR 0013. The exception covers that one file only.
 2. **Client-side isolation.** Password analyzer, JWT inspector, hash tool and encoder/decoder run 100% in the browser. Their input is never sent to the backend, never logged, never stored. The UI says so visibly.
 3. **Validate everything at the boundary** with Pydantic v2 schemas: domains, IPs, CIDRs, ports, port ranges, URLs, paths, playbook parameters.
 4. **No secrets in code, logs, or git.** Use environment variables via `pydantic-settings`. Ship `.env.example`, gitignore `.env`. All logs pass through the redaction processor.
@@ -54,6 +54,9 @@ Sentinel is an educational and defensive platform. It does not replace professio
 ## Commands (keep this section updated as the project grows)
 
 ```bash
+python run.py                                   # one-file launcher: .env, build, start + lab, first admin, browser
+python run.py --prod | --no-lab | --logs | --stop | --reset   # variants (ADR 0013)
+python -m unittest discover -s tests/launcher   # launcher tests (host, stdlib only)
 docker compose up --build                       # full stack (runs migrations first)
 docker compose --profile lab up -d              # also start the scan-lab targets (lab-web, lab-banners, lab-redis)
 docker compose run --rm api pytest              # backend unit tests (integration tests skip)

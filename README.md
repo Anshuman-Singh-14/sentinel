@@ -49,40 +49,62 @@ integrity monitoring and network diagnostics (Phases 9–11) are planned. See [`
 
 ## Demo in 10 minutes
 
-You need **Docker Desktop** (or Docker Engine with Compose v2.24+) and Git.
-Nothing else is installed on your machine. The first build downloads images and
+You need **Docker Desktop** (or Docker Engine with Compose v2.24+), Git, and
+**Python 3.10+** to run the launcher. The launcher uses the standard library only,
+so there is nothing to `pip install`. The first build downloads images and
 dependencies, which takes 3–6 minutes on a typical connection.
 
-**1. Clone and create `.env`** (random secrets are generated for you):
+**1. Clone and start** with one command:
 
 ```bash
 git clone https://github.com/Anshuman-Singh-14/sentinel.git
 cd sentinel
-sh scripts/init-env.sh                       # macOS, Linux, WSL, Git Bash
+python run.py            # on macOS/Linux this may be `python3 run.py`
 ```
 
-On Windows PowerShell, run `powershell -ExecutionPolicy Bypass -File scripts\init-env.ps1` instead.
-To do it by hand: copy `.env.example` to `.env` and replace each `CHANGE_ME`
-with a long random hex string.
+`run.py` does everything:
+1. Checks Docker is installed and running, and that Compose is v2.24 or newer.
+2. Creates `.env` with random secrets. It never overwrites an existing `.env`
+   and never prints the secrets.
+3. Builds and starts the stack with the lab targets, then waits until the API is
+   healthy.
+4. If there is no administrator yet, asks for a username. The password goes
+   into the backend CLI's own prompt, so it never appears on a command line.
+5. Opens http://localhost:5173.
 
-**2. Start everything, including the lab targets:**
+The stack includes database migrations, the API, the worker, the web app, and
+four deliberately simple **lab targets** on an isolated network: an nginx site,
+an HTTPS site with a self-signed certificate, a fake-banner server that pretends
+to run outdated FTP/SSH/SMTP/MySQL, and an open Redis.
 
-```bash
-docker compose --profile lab up --build -d --wait
-```
+| Command | What it does |
+|---|---|
+| `python run.py` | Start (or restart) the dev stack with the lab targets |
+| `python run.py --no-lab` | Start without the lab targets |
+| `python run.py --prod` | Production profile on http://localhost:8080 ([details](#production-profile)) |
+| `python run.py --logs` | Follow the logs (Ctrl+C to quit) |
+| `python run.py --stop` | Stop everything; data is kept |
+| `python run.py --reset` | Stop and **delete all data** (asks for confirmation) |
 
-This runs the database migrations, then starts the API, the worker, the web
-app, and four deliberately simple **lab targets** on an isolated network: an
-nginx site, an HTTPS site with a self-signed certificate, a fake-banner server
-that pretends to run outdated FTP/SSH/SMTP/MySQL, and an open Redis.
+Why the launcher may start processes when the rest of Sentinel never does:
+[ADR 0013](docs/adr/0013-host-launcher-subprocess-exception.md).
 
-**3. Create the first administrator.** There is no default account:
+<details>
+<summary><strong>Manual setup (fallback, without the launcher)</strong></summary>
 
-```bash
-docker compose exec api python -m app.cli create-admin --username admin
-```
+1. Create `.env` with random secrets: `sh scripts/init-env.sh` (macOS, Linux,
+   WSL, Git Bash), or `powershell -ExecutionPolicy Bypass -File scripts\init-env.ps1`
+   on Windows. By hand: copy `.env.example` to `.env` and replace each
+   `CHANGE_ME` with a long random hex string.
+2. Start everything, including the lab targets:
+   `docker compose --profile lab up --build -d --wait`
+3. Create the first administrator (there is no default account):
+   `docker compose exec api python -m app.cli create-admin --username admin`
+4. To stop: `docker compose --profile lab down`. Add `-v` to delete the data as well.
 
-**4. Open http://localhost:5173 and sign in.** Then:
+</details>
+
+**2. Sign in at http://localhost:5173.** Then:
 
 | Step | Where | What you will see |
 |---|---|---|
@@ -96,7 +118,7 @@ docker compose exec api python -m app.cli create-admin --username admin
 
 **Optional: threat intelligence.** Add free API keys to `.env` (`ABUSEIPDB_API_KEY`,
 `VIRUSTOTAL_API_KEY`, `SHODAN_API_KEY`; links in `.env.example`) and run
-`docker compose up -d` again. The tool page then lists which providers are on.
+`python run.py` again. The tool page then lists which providers are on.
 Look up a public address or domain, and the Web Defensive Audit's last step
 checks the target's resolved IPs. Without keys the tool shows *Not configured*
 and the playbook skips that step.
@@ -105,7 +127,7 @@ Also try a target that is **not** in scope, such as `8.8.8.8` in the port
 scanner. It is refused before any packet is sent, and the refusal is a
 security event in the audit log.
 
-To stop: `docker compose --profile lab down`. Add `-v` to delete the data as well.
+To stop: `python run.py --stop`. To delete the data as well: `python run.py --reset`.
 
 ## What you can do
 
@@ -240,12 +262,18 @@ mitigations, is in [`docs/threat-model.md`](docs/threat-model.md). Highlights:
   encoding tools never send data anywhere.
 
 Design decisions and the reasons for them are recorded in
-[`docs/adr/`](docs/adr) (ADR 0001–0012).
+[`docs/adr/`](docs/adr) (ADR 0001–0013).
 
 ## Production profile
 
 The default stack is for development: hot reload, source mounted into
 containers, API on its own port. The production profile is an override file:
+
+```bash
+python run.py --prod
+```
+
+Or by hand:
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build -d --wait

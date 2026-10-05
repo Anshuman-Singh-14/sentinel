@@ -6,6 +6,21 @@ All notable changes to Sentinel. The format follows
 
 ## [Unreleased]
 
+### Added
+- **One-file launcher.** `python run.py` takes a fresh clone to the login page
+  (standard library only, Python 3.10+, Windows, macOS and Linux):
+  - Checks that Docker is installed and running, and that Compose is v2.24+.
+  - Creates `.env` with generated secrets. It never overwrites an existing
+    `.env` and never prints the secrets.
+  - Starts the stack with the lab targets and waits for the API.
+  - Offers to create the first admin when there is none.
+  - Opens the browser.
+  - Flags: `--prod`, `--no-lab`, `--logs`, `--stop`, `--reset` (asks first).
+  - ADR 0013 scopes the one `subprocess` exception to this file. CI lints,
+    type-checks, scans and tests it.
+- `python -m app.cli admin-exists`: a read-only probe for the launcher (exit 0
+  or 3).
+
 ### Fixed
 - A second, page-level scrollbar appeared on longer pages and dragged the sidebar and top bar
   out of view. Absolutely positioned screen-reader labels were escaping the app shell; the shell
