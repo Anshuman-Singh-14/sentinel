@@ -1,0 +1,92 @@
+# Path sensitivity for the File Integrity Monitor (ADR 0015).
+#
+# A change's severity starts from the level of the first pattern that matches
+# its root-relative path (no match: LOW). Patterns are shell globs matched
+# with fnmatch, where `*` also matches `/`, so `*.conf` matches `etc/nginx/nginx.conf`.
+# A pattern without a slash also matches the bare file name. No regexes:
+# an edited rule cannot introduce catastrophic backtracking.
+#
+# Order matters: put specific patterns before general ones.
+schema_version: 1
+version: "1.0.0"
+rules:
+  # Credentials and privilege configuration: tampering here is account takeover.
+  - pattern: "etc/shadow"
+    level: CRITICAL
+    reason: password hashes for every local account
+  - pattern: "etc/gshadow"
+    level: CRITICAL
+    reason: group password hashes
+  - pattern: "etc/sudoers"
+    level: CRITICAL
+    reason: who may run commands as root
+  - pattern: "etc/sudoers.d/*"
+    level: CRITICAL
+    reason: who may run commands as root
+  - pattern: "*/.ssh/authorized_keys"
+    level: CRITICAL
+    reason: keys that may log in without a password (a classic persistence method)
+  - pattern: "root/.ssh/*"
+    level: CRITICAL
+    reason: the root account's SSH keys
+
+  # System identity, services and executables.
+  - pattern: "etc/passwd"
+    level: HIGH
+    reason: the local account list (a new UID 0 line is a backdoor)
+  - pattern: "etc/group"
+    level: HIGH
+    reason: group membership, including admin groups
+  - pattern: "etc/ssh/*"
+    level: HIGH
+    reason: SSH server configuration and host keys
+  - pattern: "etc/cron*"
+    level: HIGH
+    reason: scheduled jobs (a common persistence method)
+  - pattern: "etc/systemd/*"
+    level: HIGH
+    reason: service definitions started at boot
+  - pattern: "etc/ld.so.preload"
+    level: HIGH
+    reason: libraries injected into every process
+  - pattern: "bin/*"
+    level: HIGH
+    reason: system executables
+  - pattern: "sbin/*"
+    level: HIGH
+    reason: system administration executables
+  - pattern: "usr/bin/*"
+    level: HIGH
+    reason: system executables
+  - pattern: "usr/sbin/*"
+    level: HIGH
+    reason: system administration executables
+  - pattern: "usr/local/bin/*"
+    level: HIGH
+    reason: locally installed executables
+  - pattern: "*.so"
+    level: HIGH
+    reason: shared libraries loaded into running programs
+  - pattern: "etc/*"
+    level: HIGH
+    reason: system configuration
+  - pattern: "*.conf"
+    level: HIGH
+    reason: service configuration
+
+  # Application code and content.
+  - pattern: "*.sh"
+    level: MEDIUM
+    reason: shell scripts that may run with privileges
+  - pattern: "var/www/*"
+    level: MEDIUM
+    reason: web content (defacement or a planted web shell)
+  - pattern: "*.php"
+    level: MEDIUM
+    reason: server-side code (a common web-shell format)
+  - pattern: "home/*/.bashrc"
+    level: MEDIUM
+    reason: runs at every login of that user
+  - pattern: "home/*/.profile"
+    level: MEDIUM
+    reason: runs at every login of that user
