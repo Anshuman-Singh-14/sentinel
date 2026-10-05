@@ -61,6 +61,10 @@ x-backend-env: &backend-env
   UPLOAD_DIR: /data/uploads
   LOG_ROOT: /data/logs
   LOG_UPLOAD_MAX_MB: ${LOG_UPLOAD_MAX_MB:-50}
+  # File integrity monitor (Phase 11, ADR 0015). Named roots: the API needs the
+  # names to validate parameters; only the worker mounts the directories.
+  FIM_ROOTS: ${FIM_ROOTS-demo=/data/fim/demo}
+  FIM_MAX_FILES: ${FIM_MAX_FILES:-20000}
 
 services:
   postgres:
@@ -174,6 +178,9 @@ services:
       # Server logs the analyzer may read (read-only). Defaults to the sample
       # logs; point LOG_ROOT_HOST at e.g. /var/log to analyse real ones.
       - ${LOG_ROOT_HOST:-./backend/tests/fixtures/logs}:/data/logs:ro
+      # FIM root "demo" (read-only). The lab-fim service seeds and tampers
+      # with it. A named volume, because Windows bind mounts lose POSIX modes.
+      - fim_demo:/data/fim/demo:ro
     # `egress` gives the worker outbound internet access for tools (DNS from
     # Phase 5). It is a separate network so the API and data stores stay
     # without egress. Active tools are additionally gated by the scope policy
@@ -192,6 +199,27 @@ services:
       timeout: 15s
       retries: 5
       start_period: 20s
+
+  # Celery beat: publishes the FIM scheduled-check tick every minute (ADR 0015).
+  # It only sends messages: no ports, no volumes, no FIM roots. The schedule
+  # state file lives in /tmp, never in the source tree.
+  beat:
+    <<: *app-hardening
+    build:
+      context: ./backend
+      target: dev
+    image: sentinel-backend:dev
+    command: ["celery", "-A", "app.core.tasks.celery_app:celery_app", "--quiet", "beat", "--loglevel=INFO", "--schedule=/tmp/celerybeat-schedule", "--pidfile=/tmp/celerybeat.pid"]
+    environment:
+      <<: *backend-env
+    volumes:
+      - ./backend:/app
+    networks: [internal]
+    depends_on:
+      redis:
+        condition: service_healthy
+      worker:
+        condition: service_started
 
   # Integration tests against real Postgres and Redis (profile "test", never
   # started by a plain `docker compose up`):
@@ -316,6 +344,27 @@ services:
     cap_drop: [ALL]
     restart: unless-stopped
 
+  # Seeds the FIM demo volume with a small fake filesystem (etc/, usr/local/bin,
+  # var/www, home/app/.ssh) and idles. Demo:
+  #   docker compose exec lab-fim sh /opt/fim/tamper.sh
+  # Runs as root *inside* the container so the seeded files are root-owned like
+  # a real /etc, but with every capability dropped, no network at all,
+  # no-new-privileges and a read-only root filesystem.
+  lab-fim:
+    profiles: [lab]
+    image: python:3.12-slim
+    user: "0:0"
+    command: ["sh", "/opt/fim/seed.sh"]
+    volumes:
+      - fim_demo:/srv/fim
+      - ./infra/lab/fim:/opt/fim:ro
+    network_mode: none
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    read_only: true
+    restart: unless-stopped
+
 # Subnets are pinned so the scope guard can deny Sentinel's own infrastructure
 # by address (threat model T10). If they clash with another network on your
 # machine, override the SENTINEL_*_SUBNET variables in .env: the same values
@@ -348,3 +397,5 @@ volumes:
   frontend_node_modules:
   # Temporary uploads (deleted after each run). Not backed up on purpose.
   uploads:
+  # FIM demo root (ADR 0015): written by lab-fim, read-only for the worker.
+  fim_demo:

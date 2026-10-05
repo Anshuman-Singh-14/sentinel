@@ -10,6 +10,7 @@ are set explicitly instead of relying on defaults:
   rather than lost, and one worker cannot hoard queued long-running scans.
 """
 
+import sys
 from typing import Any
 
 from celery import Celery
@@ -71,7 +72,9 @@ celery_app.conf.update(
 @setup_logging.connect
 def _configure_worker_logging(**_: Any) -> None:
     # Connecting to this signal stops Celery from installing its own logging.
-    configure_logging(get_settings(), service="worker")
+    # The beat scheduler shares this module; label its logs as its own service.
+    service = "beat" if "beat" in sys.argv[1:] else "worker"
+    configure_logging(get_settings(), service=service)
 
 
 @celery_app.task(name="sentinel.ping")

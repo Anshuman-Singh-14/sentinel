@@ -18,8 +18,9 @@ RUN groupadd --system --gid 10001 sentinel \
     --home-dir /nonexistent --shell /usr/sbin/nologin sentinel
 # Mount points for the log analyzer (ADR 0014). A new named volume copies the
 # image directory's owner, so the unprivileged user can write uploads there.
-# /data/logs stays root-owned: it is a read-only mount.
-RUN mkdir -p /data/uploads /data/logs \
+# /data/logs and /data/fim stay root-owned: they are read-only mounts
+# (log analyzer, ADR 0014; file integrity monitor, ADR 0015).
+RUN mkdir -p /data/uploads /data/logs /data/fim \
  && chown sentinel:sentinel /data/uploads \
  && chmod 0700 /data/uploads
 WORKDIR /app
