@@ -221,6 +221,14 @@ class Settings(LoggingSettings):
     fim_max_file_mb: int = Field(default=100, ge=1, le=10_240)
     fim_max_total_mb: int = Field(default=2048, ge=1, le=102_400)
 
+    # Optional observability profile (ADR 0016). /metrics exists only when a
+    # token is set; Prometheus presents it as a bearer token. Values from the
+    # API's worker processes are kept in this private directory and summed
+    # per scrape (uvicorn --workers > 1 in production).
+    metrics_token: SecretStr | None = None
+    # Created 0700 by app.core.metrics; /tmp is a private tmpfs in production.
+    metrics_multiproc_dir: Path = Path("/tmp/sentinel-metrics")  # noqa: S108  # nosec B108
+
     # Reports (Phase 13). Rendering runs in a worker; these bound its cost.
     report_rate_limit_per_minute: int = Field(default=10, ge=1, le=1000)
     max_active_reports_per_user: int = Field(default=3, ge=1, le=100)
@@ -293,11 +301,23 @@ class Settings(LoggingSettings):
         return value
 
     @field_validator(
-        "nvd_api_key", "abuseipdb_api_key", "virustotal_api_key", "shodan_api_key", mode="before"
+        "nvd_api_key",
+        "abuseipdb_api_key",
+        "virustotal_api_key",
+        "shodan_api_key",
+        "metrics_token",
+        mode="before",
     )
     @classmethod
     def _empty_key_is_none(cls, value: object) -> object:
         return None if value == "" else value
+
+    @field_validator("metrics_token")
+    @classmethod
+    def _strong_metrics_token(cls, value: SecretStr | None) -> SecretStr | None:
+        if value is not None and len(value.get_secret_value()) < 32:
+            raise ValueError("METRICS_TOKEN must be at least 32 characters (or empty to disable)")
+        return value
 
     @field_validator("dns_nameservers")
     @classmethod

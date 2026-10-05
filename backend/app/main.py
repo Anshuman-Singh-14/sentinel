@@ -12,8 +12,10 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app import __version__
 from app.api.health import router as health_router
+from app.api.metrics import router as metrics_router
 from app.api.v1 import router as v1_router
 from app.config import get_settings
+from app.core import metrics
 from app.core.errors import install_exception_handlers
 from app.core.http import RequestContextMiddleware, SecurityHeadersMiddleware
 from app.core.logging import configure_logging, get_logger
@@ -46,6 +48,7 @@ def create_app() -> FastAPI:
     # surfacing later as a confusing run-time error.
     registry.discover()
     get_knowledge_base()
+    metrics.init(settings)  # no-op unless METRICS_TOKEN is set (ADR 0016)
 
     app = FastAPI(
         title="Sentinel API",
@@ -73,6 +76,7 @@ def create_app() -> FastAPI:
     app.add_middleware(SecurityHeadersMiddleware, hsts=is_production)
 
     app.include_router(health_router)
+    app.include_router(metrics_router)
     app.include_router(v1_router)
     app.include_router(ws_router)
     return app

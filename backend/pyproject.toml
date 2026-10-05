@@ -22,6 +22,7 @@ dependencies = [
     "httpx==0.28.1",              # async HTTP client (NVD API; later header/TLS checker and threat intel)
     "cryptography==50.0.2",       # X.509 parsing of certificates that fail verification (header_tls)
     "reportlab==5.0.1",           # PDF reports (Phase 13); pure-Python layout, no HTML rendering
+    "prometheus-client==0.26.0",  # /metrics for the optional observability profile (ADR 0016); no deps
 ]
 
 [dependency-groups]
