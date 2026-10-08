@@ -7,7 +7,7 @@
 
 ARG PYTHON_IMAGE=python:3.12-slim
 
-FROM ghcr.io/astral-sh/uv:0.12.22 AS uv
+FROM ghcr.io/astral-sh/uv:0.12.23 AS uv
 
 FROM ${PYTHON_IMAGE} AS base
 ENV PYTHONDONTWRITEBYTECODE=1 \
