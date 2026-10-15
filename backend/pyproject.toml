@@ -8,7 +8,7 @@ requires-python = "==3.12.*"
 dependencies = [
     "fastapi==0.142.2",           # API framework
     "uvicorn[standard]==0.54.0",  # ASGI server (uvloop + httptools)
-    "pydantic==2.13.5",           # boundary validation
+    "pydantic==2.14.1",           # boundary validation
     "pydantic-settings==2.15.0",  # env config with SecretStr
     "asyncpg==0.31.0",            # async Postgres driver (/ready now, SQLAlchemy in Phase 1)
     "redis==8.1.0",               # async Redis client (/ready, later pub/sub + rate limits)
