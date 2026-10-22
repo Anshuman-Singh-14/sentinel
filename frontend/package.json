@@ -25,7 +25,7 @@
     "@zxcvbn-ts/language-en": "4.1.1",
     "lucide-react": "1.49.0",
     "react": "19.3.0",
-    "react-dom": "19.3.0",
+    "react-dom": "19.3.1",
     "react-router": "8.4.0"
   },
   "devDependencies": {
